@@ -6,14 +6,19 @@ output: html_document
 ---
   
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = FALSE, out.width="600px", dpi=120)
-knitr::opts_chunk$set(warning = FALSE)
-knitr::opts_chunk$set(message = FALSE)
-knitr::opts_chunk$set(fig_caption = TRUE)
-knitr::opts_chunk$set(fig_height = 3) # default, make it bigger to stretch vertical axis
-knitr::opts_chunk$set(fig_width = 4) # full width
-knitr::opts_chunk$set(fig.align = 'center') # full width
-knitr::opts_chunk$set(tidy = TRUE) # tidy up code in case echo = TRUE
+knitr::opts_chunk$set(echo = FALSE, 
+                      #results = 'hide', 
+                      error = FALSE, 
+                      #include = FALSE, 
+                      out.width="600px", 
+                      dpi=120,
+                      warning = FALSE,
+                      message = FALSE,
+                      fig_caption = TRUE,
+                      fig_height = 4, # default, make it bigger to stretch vertical axis
+                      fig_width = 6, # full width
+                      fig.align = 'center', # full width
+                      tidy = TRUE ) # tidy up code in case echo = TRUE
 options(digits=3) 
 # Set start time ----
 startTime <- Sys.time() 
@@ -79,15 +84,149 @@ palette_Dark2 <- colorRampPalette(brewer.pal(8, "Dark2"))
 
 ```{r, include = F}
 # Overwrite the ggplot theme set to a more customerised appearance 
-ggplot <- function(...) ggplot2::ggplot(...) + 
-  scale_fill_brewer(palette = "Set1") + 
-  scale_color_brewer(palette = "Set1") +
-  theme_gray() +
-  theme(aspect.ratio = 1,
-        panel.background= element_rect(colour = "grey70", fill = "grey95"),
-        panel.border = element_rect(colour = "grey70", fill = NA),
-        strip.background = element_rect(colour = "grey70"))
+#ggplot <- function(...) ggplot2::ggplot(...) + 
+#  scale_fill_brewer(palette = "Set1") + 
+#  scale_color_brewer(palette = "Set1") +
+#  theme_gray() +
+#  theme(aspect.ratio = 1,
+#        panel.background= element_rect(colour = "grey70", fill = "grey95"),
+#        panel.border = element_rect(colour = "grey70", fill = NA),
+#        strip.background = element_rect(colour = "grey70"))
 ```
+
+1. randomly select a number of areas in Southampton
+2. find out buildings in selected areas with pv - using satellite images
+3. run model on these areas and see if these buildings were identified as suitable 
+4. discuss if conflict is found 
+
+```{r}
+# import uk grid of 1km x 1km
+uk_grid <- sf::st_read("./data/1km_grid_region.shp" , quiet = TRUE) %>% 
+  st_set_crs(27700) %>% # The original shp doesn't have crs, so define it as OSGB (27700)    
+  st_transform(4326)  # convert CRS to wgs84 (from meter to degree) 
+
+# import southampton border shp
+soton_border <- sf::st_read("./data/Southampton_border.shp" , quiet = TRUE) %>% 
+  st_transform(4326) # original crs is meter, so convert to degree 
+
+# Check extent (optional)
+#raster::extent(soton_border)
+
+# Crop uk grid using southampton border 
+soton_grid <- uk_grid[soton_border,] 
+
+# Check how much cells are in Southampton border
+#nrow(soton_grid)
+
+# The resolution of grid, 1km x 1km, is too big for this work 
+# The grid is therefore resampled to a smaller size
+# The function to use is 'disaggregate
+# But before that the grid shp (sf) needs to be converted into raster
+
+# Convert sf dataframe into a raster object using 'raster'. 
+# This will be the base raster layer including cell size, crs, etc
+raster_base <- raster::raster(as(soton_grid, "Spatial")) %>% 
+  disaggregate(fact = 4) # resize by a factor of 4
+
+# Then overlay any shp with base raster layer, and extract values
+# in this case, the fraction of coverage is extracted using 'getCover' 
+soton_grid_resize <- raster::rasterize(as(soton_border, "Spatial"), 
+                                            raster_base, 
+                                            getCover = T) %>% # show  fraction of each cell covered 
+  #disaggregate(fact = 4) %>%  # resample can be made at any point
+  raster::rasterToPolygons() %>%  # convert back to polygon
+  st_as_sf() %>%  # result is a st object, then change to sf
+  #.[soton_border, ] %>% 
+  filter(layer == 100)  
+
+# check total number of cells
+#nrow(soton_grid_resample)
+
+# Plot the cells on satellite image and see if the resolution is satisfactory
+leaflet(width = "100%", height = 500) %>% 
+  addProviderTiles(providers$Esri.WorldImagery) %>% 
+  #addTiles() %>% 
+  addPolygons(data = soton_grid_resize, weight = 1, fillOpacity = 0) %>% 
+  addPolygons(data = soton_border, color = "black", opacity = 1) 
+
+```
+
+Then a number of cells are to be randomly selected, and eyeball check to find out buildings with pv on roof. 
+
+```{r}
+#set.seed(1); sample(seq(1:100) , 5)
+
+set.seed(26)
+grid_sample <- soton_grid_resize %>% 
+  mutate(ID = rownames(.)) %>% 
+  sample_n(10) 
+
+leaflet(width = "100%", height = 500) %>% 
+  addProviderTiles(providers$Esri.WorldImagery) %>% 
+  #addTiles() %>% 
+  addPolygons(data = grid_sample, weight = 2, color = "red", opacity = 1 , fillColor = "red" , fillOpacity = 0.3) %>% 
+  addPolygons(data = soton_border, color = "black", opacity = 1) 
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
