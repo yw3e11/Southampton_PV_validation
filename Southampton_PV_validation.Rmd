@@ -164,12 +164,36 @@ grid_sample <- soton_grid_resize %>%
 leaflet(width = "100%", height = 500) %>% 
   addProviderTiles(providers$Esri.WorldImagery) %>% 
   #addTiles() %>% 
-  addPolygons(data = grid_sample, weight = 2, color = "red", opacity = 1 , fillColor = "red" , fillOpacity = 0.3) %>% 
+  addPolygons(data = grid_sample, weight = 2, color = "red", opacity = 1 , fillColor = "red" , fillOpacity = 0) %>% 
   addPolygons(data = soton_border, color = "black", opacity = 1) 
 
 ```
 
+Identify buildings with PV 
 
+```{r}
+
+gaze <- sf::st_read("./data/GAZETTEER_PROPERTIES_point.shp", quiet = TRUE) %>% 
+  st_set_crs(27700) %>% # The original shp doesn't have crs, so define it as OSGB (27700)    
+  st_transform(4326)    # convert CRS to wgs84 (from meter to degree) 
+
+#nrow(gaze)
+
+gaze_crop <- gaze[grid_sample,]
+
+#nrow(gaze_crop)
+#head(gaze_crop)
+#head(gaze)
+
+leaflet(width = "100%", height = 500) %>% 
+  addProviderTiles(providers$Esri.WorldImagery) %>% 
+  #addTiles() %>% 
+  addPolygons(data = grid_sample, weight = 2, color = "red", opacity = 1 , fillColor = "red" , fillOpacity = 0.0) %>% 
+  addPolygons(data = soton_border, color = "black", opacity = 1) %>% 
+  addMarkers(data = gaze_crop, popup = ~TYPE)
+
+
+```
 
 
 
