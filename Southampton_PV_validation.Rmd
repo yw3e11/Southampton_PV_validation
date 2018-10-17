@@ -143,7 +143,7 @@ soton_grid_resize <- raster::rasterize(as(soton_border, "Spatial"),
 #nrow(soton_grid_resample)
 
 # Plot the cells on satellite image and see if the resolution is satisfactory
-leaflet(width = "100%", height = 500) %>% 
+leaflet(width = "80%", height = 500) %>% 
   addProviderTiles(providers$Esri.WorldImagery) %>% 
   #addTiles() %>% 
   addPolygons(data = soton_grid_resize, weight = 1, fillOpacity = 0) %>% 
@@ -154,8 +154,6 @@ leaflet(width = "100%", height = 500) %>%
 Then a number of cells are to be randomly selected, and eyeball check to find out buildings with pv on roof. 
 
 ```{r}
-#set.seed(1); sample(seq(1:100) , 5)
-
 set.seed(26)
 grid_sample <- soton_grid_resize %>% 
   mutate(ID = rownames(.)) %>% 
@@ -163,7 +161,7 @@ grid_sample <- soton_grid_resize %>%
 
 grid_sample$ID
 
-leaflet(width = "100%", height = 500) %>% 
+leaflet(width = "60%") %>% 
   addProviderTiles(providers$Esri.WorldImagery) %>% 
   #addTiles() %>% 
   addPolygons(data = soton_border, color = "black", opacity = 1) %>% 
@@ -173,7 +171,7 @@ leaflet(width = "100%", height = 500) %>%
               fillColor = "red" , fillOpacity = 0 , 
               popup = paste("ID: ", grid_sample$ID)) 
   
-
+#st_write(grid_sample, "./data/grid_sample.shp",  layer_options = "GEOMETRY=AS_XY")
 ```
 
 Identify buildings with PV 
@@ -192,7 +190,7 @@ gaze_crop <- gaze[grid_sample,]
 #head(gaze_crop)
 #head(gaze)
 
-leaflet(width = "100%", height = 800) %>% 
+leaflet(width = "80%", height = 800) %>% 
   addProviderTiles(providers$Esri.WorldImagery) %>% 
   #addTiles() %>% 
   addPolygons(data = grid_sample, weight = 2, 
@@ -214,7 +212,7 @@ pv_building <- read.csv("./PV_buildings.csv", header = T, sep = "," , stringsAsF
 gaze_pv <- gaze_crop %>%
   right_join(pv_building, by = c("UPRN" = "UPRN_ID")) 
   
-leaflet(width = "100%" , height = 500) %>% 
+leaflet(width = "80%" , height = 500) %>% 
   addProviderTiles(provider = providers$Esri.WorldImagery) %>% 
   addPolygons(data = soton_border, color = "black", weight = 2, opacity = 1, fillOpacity = 0) %>% 
   addPolygons(data = grid_sample , color = "red", weight = 2, opacity = 1, fillOpacity = 0) %>% 
@@ -233,7 +231,7 @@ gis_roof <- sf::st_read("./data/Applicable_roof_area.shp", quiet = TRUE) %>%
 gis_roof_subset <- gis_roof[grid_sample,]
 
 
-leaflet() %>% 
+leaflet(width="80%") %>% 
   addProviderTiles(provider = providers$Esri.WorldImagery) %>% 
   #addTiles() %>% 
   addPolygons(data = gis_roof_subset , weight = 5, color = "red", fillColor = "red", fillOpacity = 0.5 ) %>% 
@@ -248,13 +246,83 @@ leaflet() %>%
 
 
 
+Patrick's comments: 
+1) 3 of 10 sample randomly selected areas are industrial and have no PV at the moment
+2) This result does not help the validation, and so no need to mention them
+3) It is better to target residential areas and gain greater sample size 
+4) Commercial buildings have larger roofs with higher PV potential, but their feasibility needs more rigorous assessment, so can be excluded from the scope of this work
+5) New built houses have PV regardless of their feasibility, and they can also be eliminated from sample. 
+
+# Re-select sample areas from residential areas, and eyeball existing PV. 
+
+```{r}
+# create a subset of gazetteer for residential properties only
+gaze_residential <- gaze %>% 
+  #head()
+  filter(str_detect(TYPE, "Residential"))
+
+# Find out how many gazetteer points are in each grid cell 
+soton_grid_residential <- soton_grid_resize %>%
+  mutate(ID = seq.int(n())) %>% 
+  st_join(gaze_residential, join = st_intersects) %>% # st_join creates a large number of pairs 
+  group_by(ID) %>% 
+  summarise(Count = n() - 1) %>%  # empty pair also returns as a row, hence "-1"
+  ungroup
+
+# use distribution a histogram 
+median_soton_grid_res <- median(soton_grid_residential$Count)
+
+ggplot(soton_grid_residential ) + 
+  geom_histogram(aes(x=Count),stat = "bin" , binwidth = 40 , colour = "black")+
+  geom_vline(xintercept = median_soton_grid_res, colour = "red")+
+  geom_text(aes(x=median_soton_grid_res , 
+                y=120, 
+                label = median_soton_grid_res ), 
+            nudge_x = 30 , 
+            color ="red" )
+
+```
 
 
 
+```{r}
+# Show the distribution on map 
+bins <- quantile(soton_grid_residential$Count, seq(from = 0.1, to =1, by=0.1))
+pal <- colorBin("YlOrRd", domain = soton_grid_residential$Count, bins = bins ,  na.color = "")
+
+soton_grid_residential%>% 
+  filter(Count > 0) %>% 
+  leaflet(width = "80%") %>% 
+  addTiles() %>% 
+  addPolygons(data =  soton_border , weight = 2,
+              fillOpacity = 0) %>% 
+  addPolygons(fillColor = ~pal(Count), 
+              weight = 0, 
+              fillOpacity = 1 , 
+              label = ~as.character(Count)) 
+
+```
 
 
+```{r}
+# randomly select 10 areas among those cells with at least 1 residential property
 
+set.seed(4)
+grid_sample_residential <- soton_grid_residential %>% 
+  filter(Count > 0) %>% 
+  sample_n(10) 
 
+leaflet(width = "60%") %>% 
+  addProviderTiles(providers$Esri.WorldImagery) %>% 
+  #addTiles() %>% 
+  addPolygons(data = soton_border, color = "black", opacity = 1) %>% 
+  addPolygons(data = grid_sample_residential, 
+              weight = 2, color = "red", 
+              opacity = 1 , fillColor = "red" , fillOpacity = 0 , 
+              popup = paste("ID: ", grid_sample$ID)) 
+  
+#st_write(grid_sample_residential, "./data/grid_sample_residential.shp",  layer_options = "GEOMETRY=AS_XY")
+```
 
 
 
