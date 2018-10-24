@@ -303,43 +303,120 @@ soton_grid_residential%>%
 
 ```
 
-
 ```{r}
-# randomly select 10 areas among those cells with at least 1 residential property
 
-set.seed(4)
-grid_sample_residential <- soton_grid_residential %>% 
-  filter(Count > 0) %>% 
-  sample_n(10) 
+temp <- soton_grid_residential %>% 
+  filter(Count >0) 
 
-leaflet(width = "60%") %>% 
-  addProviderTiles(providers$Esri.WorldImagery) %>% 
-  #addTiles() %>% 
-  addPolygons(data = soton_border, color = "black", opacity = 1) %>% 
-  addPolygons(data = grid_sample_residential, 
-              weight = 2, color = "red", 
-              opacity = 1 , fillColor = "red" , fillOpacity = 0 , 
-              popup = paste("ID: ", grid_sample$ID)) 
+allID <- data.frame(ID = temp$ID)
+
+sampleID_all <- data.frame(Seed = as.integer(), 
+                           AreaID = as.integer())
+
+for (i in seq(1:100)){
+  set.seed(i)
+  randID <- sample_n(allID, 10) %>% 
+    mutate(Seed = i, ID = ID)
+  sampleID_all <- rbind(sampleID_all, randID)
+  #print(sampleID_all)
+}
+
+sampleID_all %>% 
+  filter(ID == 13) 
   
-#st_write(grid_sample_residential, "./data/grid_sample_residential.shp",  layer_options = "GEOMETRY=AS_XY")
 ```
 
 
 
+```{r}
+# The code below is to find out which seed would have Area No.13 included, 
+# which is upper bassett, a residential area with large number of PV
+
+set.seed(89) 
+soton_grid_residential %>% 
+  filter(Count > 0) %>% 
+  sample_n(10) %>% 
+  leaflet(width = "100%", height="800") %>% 
+  addProviderTiles(providers$Esri.WorldImagery) %>% 
+  #addTiles() %>% 
+  addPolygons(data = soton_border, color = "black", opacity = 1) %>% 
+  addPolygons(weight = 2, color = "red", 
+              opacity = 1 , fillColor = "red" , fillOpacity = 0 , 
+              label = ~paste("ID: ", ID), 
+              labelOptions = labelOptions(noHide = T))
+
+```
+
+
+```{r}
+# randomly select 10 areas among those cells with at least 1 residential property
+# use seed 89 as it includes Upper bassett where a large number of PV are found
+set.seed(89)
+grid_sample_residential <- soton_grid_residential %>% 
+  filter(Count > 0) %>% 
+  sample_n(10) 
+
+head(grid_sample_residential,10)
+
+# subset gazetteer data for only those in sample areas
+gaze_crop_residential <- gaze[grid_sample_residential,]
+```
+
+
+The sample points are then exported to KML, and imported to google earth to eyeball existing pv
+
+Google earth's imagery date: 5/26/2017 
+
+```{r}
+#st_write(gaze_crop_residential, "./data/test89.kml")
+
+# Also exported 10 sample areas. 
+#st_write(grid_sample_residential, "grid_test.kml")
+```
+
+All the selected buildings were eyeballed using Google earth, and the results are imported backed to R.
+
+```{r}
+existingPV_soton <- sf::st_read("./data/existing_PV_in_southampton_10_sample_areas.kml" , quiet = TRUE) 
+
+head(existingPV_soton)
+
+```
+
+
+```{r}
+
+leaflet(width="60%") %>% 
+  addTiles() %>% 
+  addPolygons(data = grid_sample_residential, color = "red", weight = 2, opacity = 1, fillOpacity = 0) %>% 
+  addCircleMarkers(data=existingPV_soton, radius = 1, fillOpacity = 0, stroke = 1, 
+                   popup = ~ADDRESS )
+```
+
+```{r}
+bins <- quantile(soton_grid_residential$Count, seq(from = 0.1, to =1, by=0.1))
+pal <- colorBin("YlOrRd", domain = soton_grid_residential$Count, bins = bins ,  na.color = "")
+
+grid_sample_residential%>% 
+  st_join(existingPV_soton, join = st_intersects)  %>% 
+  group_by(ID) %>% 
+  summarise(Existing_PV = n() - 1) %>% 
+  ungroup() %>% 
+  head()
+  leaflet() %>% 
+  addPolygons()
+  
 
 
 
+```
 
-
-
-
-
-
-
-
-
-
-
+soton_grid_residential <- soton_grid_resize %>%
+  mutate(ID = seq.int(n())) %>% 
+  st_join(gaze_residential, join = st_intersects) %>% # st_join creates a large number of pairs 
+  group_by(ID) %>% 
+  summarise(Count = n() - 1) %>%  # empty pair also returns as a row, hence "-1"
+  ungroup
 
 
 
