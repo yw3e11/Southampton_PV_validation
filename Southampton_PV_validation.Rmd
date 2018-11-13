@@ -170,8 +170,9 @@ leaflet(width = "60%") %>%
               opacity = 1 , 
               fillColor = "red" , fillOpacity = 0 , 
               popup = paste("ID: ", grid_sample$ID)) 
-  
-#st_write(grid_sample, "./data/grid_sample.shp",  layer_options = "GEOMETRY=AS_XY")
+class(grid_sample)  
+head(grid_sample)
+#st_write(grid_sample, "./data/grid_sample2.shp",  layer_options = "GEOMETRY=AS_XY")
 ```
 
 Identify buildings with PV 
@@ -265,8 +266,10 @@ gaze_residential <- gaze %>%
 soton_grid_residential <- soton_grid_resize %>%
   mutate(ID = seq.int(n())) %>% 
   st_join(gaze_residential, join = st_intersects) %>% # st_join creates a large number of pairs 
+  filter(!is.na(POSTCODE)) %>%  # filter out empty joins
+  #head()
   group_by(ID) %>% 
-  summarise(Count = n() - 1) %>%  # empty pair also returns as a row, hence "-1"
+  summarise(Count = n() ) %>%  
   ungroup
 
 # use distribution a histogram 
@@ -374,49 +377,162 @@ Google earth's imagery date: 5/26/2017
 #st_write(grid_sample_residential, "grid_test.kml")
 ```
 
+```{r}
+head(grid_sample)
+```
+
+
 All the selected buildings were eyeballed using Google earth, and the results are imported backed to R.
 
 ```{r}
 existingPV_soton <- sf::st_read("./data/existing_PV_in_southampton_10_sample_areas.kml" , quiet = TRUE) 
 
-head(existingPV_soton)
+#st_write(grid_sample_residential , "./data/grid_sample_new.shp", layer_options = "GEOMETRY=AS_XY" )
 
 ```
 
-
 ```{r}
 
-leaflet(width="60%") %>% 
+leaflet(width="80%") %>% 
   addTiles() %>% 
   addPolygons(data = grid_sample_residential, color = "red", weight = 2, opacity = 1, fillOpacity = 0) %>% 
   addCircleMarkers(data=existingPV_soton, radius = 1, fillOpacity = 0, stroke = 1, 
                    popup = ~ADDRESS )
 ```
 
+
 ```{r}
-bins <- quantile(soton_grid_residential$Count, seq(from = 0.1, to =1, by=0.1))
-pal <- colorBin("YlOrRd", domain = soton_grid_residential$Count, bins = bins ,  na.color = "")
+# sra - Suitable Roof Area
+# Attempt 1: slope STD=10, aspect STD=10, AreaSol=10
 
-grid_sample_residential%>% 
-  st_join(existingPV_soton, join = st_intersects)  %>% 
-  group_by(ID) %>% 
-  summarise(Existing_PV = n() - 1) %>% 
-  ungroup() %>% 
-  head()
-  leaflet() %>% 
-  addPolygons()
-  
+sra <- sf::st_read("./data/SRA_10_10_600.shp", quiet = T) %>% 
+  st_set_crs(27700) %>% # The original shp doesn't have crs, so define it as OSGB (27700)    
+  st_transform(4326)  # convert CRS to wgs84 (from meter to degree) 
 
+soton_bld <- sf::st_read("./data/Buildings_grid.shp", quiet = T) %>% 
+  st_set_crs(27700) %>% # The original shp doesn't have crs, so define it as OSGB (27700)   
+  st_transform(4326)  # convert CRS to wgs84 (from meter to degree) 
+
+sra
+
+leaflet(width="80%", height = "400") %>% 
+#  addTiles() %>% 
+  addProviderTiles(providers$Esri.WorldImagery) %>% 
+  #addPolygons(data = grid_sample_residential) %>% 
+  addMarkers(data = existingPV_soton, 
+#                   fillOpacity = 1, fillColor = "red", stroke = 1, color = "red", 
+                   popup = ~ADDRESS ) %>% 
+  addPolygons(data = soton_bld , fillOpacity = 0, 
+              color = "black", stroke = 0.2 , opacity = 1, popup = ~as.character(OBJECTID))  %>% 
+  addPolygons(data = sra , fillOpacity = 0, 
+              color = "blue", stroke = 1 )
 
 
 ```
 
-soton_grid_residential <- soton_grid_resize %>%
-  mutate(ID = seq.int(n())) %>% 
-  st_join(gaze_residential, join = st_intersects) %>% # st_join creates a large number of pairs 
-  group_by(ID) %>% 
-  summarise(Count = n() - 1) %>%  # empty pair also returns as a row, hence "-1"
-  ungroup
+Step 1: combine building polygons with points where PV are found using google satellite image. 
+
+```{r}
+# merge existing PV (points) with building outlines (polygons)
+bld_w_PV <- soton_bld %>% 
+  st_join(existingPV_soton, join= st_contains ) %>% 
+  filter(!is.na(POSTCODE)) %>%  # remove bld that don't have points in them
+  #head()
+  group_by(OBJECTID) %>% 
+  summarise(Count = n()  ) %>%
+  filter(Count > 0) %>%  # 
+  ungroup()  %>%
+  mutate(BID = OBJECTID, NPV = Count) %>%
+  dplyr::select(-OBJECTID, -Count)
+  
+
+
+leaflet() %>% 
+  addTiles(options = providerTileOptions(maxZoom = 100)) %>% 
+  addMarkers(data = existingPV_soton, 
+#                   fillOpacity = 1, fillColor = "red", stroke = 1, color = "red", 
+                   popup = ~ADDRESS ) %>% 
+  addPolygons(data = bld_w_PV, 
+              color="black" , stroke = 1, opacity = 1, 
+              popup = ~as.character(BID)) %>% 
+  addPolygons(data = sra , fillOpacity = 0, 
+              color = "blue", stroke = 1 , popup = ~as.character(Id) )
+
+
+```
+
+Step 2: see the overlap of buildings-PV and GIS estimates.
+
+```{r}
+bld_w_PV %>% 
+  #head()
+  st_join(sra ,  join = st_intersects) %>% 
+  #filter(BID == 53951) 
+  #filter(!is.na(Id)) %>% 
+  #nrow()
+  #head()
+  group_by(BID, NPV) %>% 
+  summarise(NGIS = sum(!is.na(Id)), AGIS = sum(Shape_Area)) %>% 
+  #filter(BID == 53951) %>% 
+  #head()
+  ungroup() -> bld_pv_gis
+
+head(bld_pv_gis)
+```
+
+```{r}
+leaflet() %>% 
+  addTiles(options = providerTileOptions(maxZoom = 100)) %>% 
+  addMarkers(data = existingPV_soton, 
+#                   fillOpacity = 1, fillColor = "red", stroke = 1, color = "red", 
+                   popup = ~ADDRESS ) %>% 
+  addPolygons(data = bld_w_PV, 
+              color="black" , stroke = 1, opacity = 1, 
+              popup = ~as.character(BID)) %>% 
+  addPolygons(data = sra , fillOpacity = 0, 
+              color = "blue", stroke = 1 , popup = ~as.character(Id) ) %>% 
+  addPolygons(data = bld_pv_gis , fillOpacity = 0, 
+              color = "green", stroke = 1 , popup = ~as.character(paste("<b>BID:</b> ", BID, "<br/>", 
+                                                                        "<b>NPV: </b>", NPV , "<br/>",
+                                                                        "<b>NGIS:</b>",NGIS , "<br/>" ) ))
+
+```
+
+```{r}
+head(bld_pv_gis)
+
+bld_pv_gis %>% 
+  #nrow()
+  arrange(NPV, NGIS) %>% 
+  #arrange(desc(NPV), desc(AGIS)) %>% 
+  head()
+```
+
+```{r}
+
+bld_pv_gis %>% 
+  #mutate(NGIS = ifelse(is.na(NGIS), 0, NGIS)) %>% 
+  #mutate(AGIS = ifelse(is.na(AGIS), 0, AGIS)) %>% 
+  #arrange(NPV, NGIS) %>% 
+  #head()
+  ggplot()+ 
+  geom_point(aes(x= NPV, y=AGIS))
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
