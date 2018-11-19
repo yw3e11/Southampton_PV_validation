@@ -364,6 +364,9 @@ head(grid_sample_residential,10)
 # subset gazetteer data for only those in sample areas
 gaze_crop_residential <- gaze[grid_sample_residential,]
 ```
+```{r}
+nrow(gaze_crop_residential)
+```
 
 
 The sample points are then exported to KML, and imported to google earth to eyeball existing pv
@@ -522,6 +525,13 @@ bld_pv_gis %>%
 
 
 
+```{r}
+bld_pv_gis %>% 
+  #head()
+  sum(NPV)
+  filter(NGIS==0) %>% 
+  head()
+```
 
 
 
