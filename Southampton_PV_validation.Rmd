@@ -23,28 +23,28 @@ options(digits=3)
 # Set start time ----
 startTime <- Sys.time() 
 
-myPackages <- c("tidyverse", 
-                "lubridate", 
-                "zoo", 
-                "xts", 
-                "chron", 
-                "data.table", 
+myPackages <- c(#"tidyverse", 
+                #"lubridate", 
+                #"zoo", 
+                #"xts", 
+                #"chron", 
+                #"data.table", 
                 "scales",
                 "DT",
-                "fTrading", 
+                #"fTrading", 
                 "data.table", 
                 "knitr", 
-                "gridExtra", 
-                "plotly", 
-                "stringr", 
-                "kableExtra", 
-                "maptools" ,
-                "ggmap",
+                #"gridExtra", 
+                #"plotly", 
+                #"stringr", 
+                #"kableExtra", 
+                #"maptools" ,
+                #"ggmap",
                 "ggplot2",
-                "ggsn",
+                #"ggsn",
                 "sf",
                 "leaflet", 
-                "fmsb", 
+                #"fmsb", 
                 "RColorBrewer",
                 #"plyr", # this library clash with dplyr all the time. 
                 "png")
@@ -83,15 +83,15 @@ palette_Dark2 <- colorRampPalette(brewer.pal(8, "Dark2"))
 
 
 ```{r, include = F}
-# Overwrite the ggplot theme set to a more customerised appearance 
-#ggplot <- function(...) ggplot2::ggplot(...) + 
-#  scale_fill_brewer(palette = "Set1") + 
-#  scale_color_brewer(palette = "Set1") +
-#  theme_gray() +
-#  theme(aspect.ratio = 1,
-#        panel.background= element_rect(colour = "grey70", fill = "grey95"),
-#        panel.border = element_rect(colour = "grey70", fill = NA),
-#        strip.background = element_rect(colour = "grey70"))
+## Overwrite the ggplot theme set to a more customerised appearance 
+ggplot <- function(...) ggplot2::ggplot(...) + 
+  scale_fill_brewer(palette = "Set1") + 
+  scale_color_brewer(palette = "Set1") +
+  theme_gray() +
+  theme(aspect.ratio = 1,
+        panel.background= element_rect(colour = "grey70", fill = "grey95"),
+        panel.border = element_rect(colour = "grey70", fill = NA),
+        strip.background = element_rect(colour = "grey70"))
 ```
 
 1. randomly select a number of areas in Southampton
@@ -143,13 +143,53 @@ soton_grid_resize <- raster::rasterize(as(soton_border, "Spatial"),
 #nrow(soton_grid_resample)
 
 # Plot the cells on satellite image and see if the resolution is satisfactory
-leaflet(width = "80%", height = 500) %>% 
-  addProviderTiles(providers$Esri.WorldImagery) %>% 
+leaflet(width = "80%", height = 400) %>% 
+  addProviderTiles(providers$Esri.WorldImagery, options = providerTileOptions(maxZoom = 12,minZoom= 12)) %>% 
   #addTiles() %>% 
   addPolygons(data = soton_grid_resize, weight = 1, fillOpacity = 0) %>% 
   addPolygons(data = soton_border, color = "black", opacity = 1) 
 
 ```
+
+```{r}
+leaflet() %>% 
+  addTiles(options = providerTileOptions(maxZoom = 20,minZoom= 20)) %>% 
+  addPolygons(data=soton_grid_resize, color="red", weight = 1 ) %>% 
+  addPolygons(data=soton_grid, fillOpacity = 0) 
+```
+
+The map above shows that the two layers of grids are not aligned. Disaggregate does not split existing rasters. The plan is to create a raster using desireable resolution and extent. 
+
+```{r}
+# obtain extent of soton_grid, which I want the new grid to align with. 
+# Because the soton_grid has been converted to wgs 84, degree, the resolution cannot be defined by meters
+# So the first is to convert soton_grid back to crs 27700
+soton_grid %>% 
+  st_transform(27700) %>% 
+  extent() -> soton_ext
+
+grid_new <- raster::raster(soton_ext, res=100, crs="+proj=tmerc +lat_0=49 +lon_0=-2 +k=0.9996012717 +x_0=400000 +y_0=-100000 +ellps=airy +datum=OSGB36 +units=m +no_defs")
+
+# Check how much cells on each direcion, horizontal, ncol, and vertical, nrow
+grid_new
+
+# Assign a number to each cell, so the raster is not NULL valued
+values(grid_new) <- 1:ncell(grid_new)
+
+# Convert the raster to polygons and change to a CRS that leaflet recongnises (WSG 84)
+grid_new <- grid_new %>% 
+  rasterToPolygons() %>%  # result of this function is a st layer
+  st_as_sf() %>%  # change to sf object
+  st_transform(4326)
+
+
+leaflet() %>% 
+  addPolygons(data = grid_new) %>% 
+  addPolygons(data = soton_grid, color="red", fillOpacity = 0)
+```
+
+
+
 
 Then a number of cells are to be randomly selected, and eyeball check to find out buildings with pv on roof. 
 
@@ -272,26 +312,43 @@ soton_grid_residential <- soton_grid_resize %>%
   summarise(Count = n() ) %>%  
   ungroup
 
+leaflet() %>% 
+  addTiles() %>% 
+  addPolygons(data=soton_border, fillOpacity = 0, weight = 2, color = "blue") %>% 
+  addPolygons(data = soton_grid_resize, fillOpacity = 0, 
+              weight = 1, color="black") %>% 
+  addScaleBar()
+```
+
+
+```{r}
+
 # use distribution a histogram 
 median_soton_grid_res <- median(soton_grid_residential$Count)
 
 ggplot(soton_grid_residential ) + 
-  geom_histogram(aes(x=Count),stat = "bin" , binwidth = 40 , colour = "black")+
+  geom_histogram(aes(x=Count),stat = "bin" , bins = 30 , colour = "black")+
   geom_vline(xintercept = median_soton_grid_res, colour = "red")+
-  geom_text(aes(x=median_soton_grid_res , 
-                y=120, 
-                label = median_soton_grid_res ), 
+  geom_text(aes(x=median_soton_grid_res +250 , 
+                y=130, 
+                label = paste("median of density =",median_soton_grid_res) ), 
             nudge_x = 30 , 
-            color ="red" )
+            color ="red" ) + 
+  labs(x = "Property density" ,  y="Areas at different density range")+
+  ylim(0,150)
 
 ```
 
 
+```{r}
+
+```
+
 
 ```{r}
 # Show the distribution on map 
-bins <- quantile(soton_grid_residential$Count, seq(from = 0.1, to =1, by=0.1))
-pal <- colorBin("YlOrRd", domain = soton_grid_residential$Count, bins = bins ,  na.color = "")
+bins <- quantile(soton_grid_residential$Count, seq(from = 0.1, to =1, by=0.2))
+pal <- colorBin("YlOrRd", domain = soton_grid_residential$Count, bins = bins ,  na.color = "#ffffff00")
 
 soton_grid_residential%>% 
   filter(Count > 0) %>% 
@@ -300,14 +357,16 @@ soton_grid_residential%>%
   addPolygons(data =  soton_border , weight = 2,
               fillOpacity = 0) %>% 
   addPolygons(fillColor = ~pal(Count), 
-              weight = 0, 
+              weight = 1, color="black" , 
               fillOpacity = 1 , 
-              label = ~as.character(Count)) 
+              label = ~as.character(Count)) %>% 
+  addLegend("bottomright", pal=pal, values = ~Count, title = "Property count" , opacity = 1 , na.label = "empty") %>% 
+  addScaleBar() 
+
 
 ```
 
 ```{r}
-
 temp <- soton_grid_residential %>% 
   filter(Count >0) 
 
@@ -349,6 +408,38 @@ soton_grid_residential %>%
               labelOptions = labelOptions(noHide = T))
 
 ```
+
+
+```{r}
+
+set.seed(89) 
+soton_grid_residential %>% 
+  filter(Count > 0) %>% 
+  sample_n(10) ->soton_grid_sample
+
+soton_grid_residential_only <- soton_grid_residential%>% 
+  filter(Count > 0) 
+
+  
+soton_grid_residential_only %>% 
+  leaflet(width = "80%", height = "500px") %>% 
+  addTiles() %>% 
+  addPolygons(data =  soton_border , weight = 2,
+              fillOpacity = 0) %>% 
+  addPolygons(fillColor = ~pal(Count), 
+              weight = 0, color="black" , 
+              fillOpacity = 1 , 
+              label = ~as.character(Count)) %>% 
+  addPolygons(data = soton_grid_resize, 
+              fillOpacity = 0, 
+              weight = 1, color = "black") %>% 
+  addPolygons(data = soton_grid_sample, fillOpacity = 0, 
+              color = "blue" , opacity = 1) %>% 
+  addLegend("bottomright",  data = soton_grid_sample, colors = "blue", opacity = 0, labels = "Sample area" ) %>% 
+  addLegend("bottomright", pal=pal, values = ~Count, title = "Property count" , opacity = 1) %>%   addScaleBar() 
+```
+
+
 
 
 ```{r}
