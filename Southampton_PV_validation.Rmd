@@ -128,6 +128,9 @@ soton_grid <- uk_grid[soton_border,]
 raster_base <- raster::raster(as(soton_grid, "Spatial")) %>% 
   disaggregate(fact = 4) # resize by a factor of 4
 
+ncell(raster_base)
+nrow(raster_base)
+
 # Then overlay any shp with base raster layer, and extract values
 # in this case, the fraction of coverage is extracted using 'getCover' 
 soton_grid_resize <- raster::rasterize(as(soton_border, "Spatial"), 
@@ -161,31 +164,31 @@ leaflet() %>%
 The map above shows that the two layers of grids are not aligned. Disaggregate does not split existing rasters. The plan is to create a raster using desireable resolution and extent. 
 
 ```{r}
-# obtain extent of soton_grid, which I want the new grid to align with. 
-# Because the soton_grid has been converted to wgs 84, degree, the resolution cannot be defined by meters
-# So the first is to convert soton_grid back to crs 27700
-soton_grid %>% 
-  st_transform(27700) %>% 
-  extent() -> soton_ext
+## obtain extent of soton_grid, which I want the new grid to align with. 
+## Because the soton_grid has been converted to wgs 84, degree, the resolution cannot be defined by meters
+## So the first is to convert soton_grid back to crs 27700
+#soton_grid %>% 
+#  st_transform(27700) %>% 
+#  extent() -> soton_ext
 
-grid_new <- raster::raster(soton_ext, res=100, crs="+proj=tmerc +lat_0=49 +lon_0=-2 +k=0.9996012717 +x_0=400000 +y_0=-100000 +ellps=airy +datum=OSGB36 +units=m +no_defs")
+#grid_new <- raster::raster(soton_ext, res=100, crs="+proj=tmerc +lat_0=49 +lon_0=-2 +k=0.9996012717 +x_0=400000 +y_0=-100000 +ellps=airy +datum=OSGB36 +units=m +no_defs")
 
-# Check how much cells on each direcion, horizontal, ncol, and vertical, nrow
-grid_new
+## Check how much cells on each direcion, horizontal, ncol, and vertical, nrow
+#grid_new
 
-# Assign a number to each cell, so the raster is not NULL valued
-values(grid_new) <- 1:ncell(grid_new)
+## Assign a number to each cell, so the raster is not NULL valued
+#values(grid_new) <- 1:ncell(grid_new)
 
-# Convert the raster to polygons and change to a CRS that leaflet recongnises (WSG 84)
-grid_new <- grid_new %>% 
-  rasterToPolygons() %>%  # result of this function is a st layer
-  st_as_sf() %>%  # change to sf object
-  st_transform(4326)
+## Convert the raster to polygons and change to a CRS that leaflet recongnises (WSG 84)
+#grid_new <- grid_new %>% 
+#  rasterToPolygons() %>%  # result of this function is a st layer
+#  st_as_sf() %>%  # change to sf object
+#  st_transform(4326)
 
 
-leaflet() %>% 
-  addPolygons(data = grid_new) %>% 
-  addPolygons(data = soton_grid, color="red", fillOpacity = 0)
+#leaflet() %>% 
+#  addPolygons(data = grid_new) %>% 
+#  addPolygons(data = soton_grid, color="red", fillOpacity = 0)
 ```
 
 
@@ -194,6 +197,10 @@ leaflet() %>%
 Then a number of cells are to be randomly selected, and eyeball check to find out buildings with pv on roof. 
 
 ```{r}
+temp <- st_transform(soton_grid_resize[1,], 27700)
+st_area(temp)
+temp$
+
 set.seed(26)
 grid_sample <- soton_grid_resize %>% 
   mutate(ID = rownames(.)) %>% 
@@ -214,6 +221,14 @@ class(grid_sample)
 head(grid_sample)
 #st_write(grid_sample, "./data/grid_sample2.shp",  layer_options = "GEOMETRY=AS_XY")
 ```
+
+```{r}
+area <- (117111  - 116882 )* ( 441973  - 441671 )
+area
+```
+
+
+
 
 Identify buildings with PV 
 
@@ -283,6 +298,10 @@ leaflet(width="80%") %>%
 
 ```
 
+```{r}
+plot(soton_grid_resize)
+nrow(soton_grid_resize)
+```
 
 
 
@@ -326,16 +345,22 @@ leaflet() %>%
 # use distribution a histogram 
 median_soton_grid_res <- median(soton_grid_residential$Count)
 
+min(soton_grid_residential$Count)
+
+library(scales)
 ggplot(soton_grid_residential ) + 
+  #geom_bar(aes(x=Count, y=..prop..) , stat = "count")+
   geom_histogram(aes(x=Count),stat = "bin" , bins = 30 , colour = "black")+
   geom_vline(xintercept = median_soton_grid_res, colour = "red")+
   geom_text(aes(x=median_soton_grid_res +250 , 
                 y=130, 
                 label = paste("median of density =",median_soton_grid_res) ), 
-            nudge_x = 30 , 
-            color ="red" ) + 
-  labs(x = "Property density" ,  y="Areas at different density range")+
-  ylim(0,150)
+                nudge_x = 30 , 
+                color ="red" ) + 
+  labs(x = "Property density (thousands per square km)" ,  y="Proportion of areas having various density")+
+  scale_y_continuous(labels = function(x) paste(round(x/7.46 ,2 ), "%")) +
+  scale_x_continuous(labels = function(x) paste(round(x/67868*1000,0)) , breaks = seq(0,1000,200/100000*67868) )
+  #ylim(0,150)
 
 ```
 
