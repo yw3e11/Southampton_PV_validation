@@ -23,28 +23,28 @@ options(digits=3)
 # Set start time ----
 startTime <- Sys.time() 
 
-myPackages <- c(#"tidyverse", 
-                #"lubridate", 
-                #"zoo", 
-                #"xts", 
-                #"chron", 
-                #"data.table", 
+myPackages <- c("tidyverse", 
+                "lubridate", 
+                "zoo", 
+                "xts", 
+                "chron", 
+                "data.table", 
                 "scales",
                 "DT",
-                #"fTrading", 
+                "fTrading", 
                 "data.table", 
                 "knitr", 
-                #"gridExtra", 
-                #"plotly", 
-                #"stringr", 
-                #"kableExtra", 
-                #"maptools" ,
-                #"ggmap",
+                "gridExtra", 
+                "plotly", 
+                "stringr", 
+                "kableExtra", 
+                "maptools" ,
+                "ggmap",
                 "ggplot2",
-                #"ggsn",
+                "ggsn",
                 "sf",
                 "leaflet", 
-                #"fmsb", 
+                "fmsb", 
                 "RColorBrewer",
                 #"plyr", # this library clash with dplyr all the time. 
                 "png")
@@ -55,7 +55,7 @@ myPackages <- c(#"tidyverse",
 #"rgeos")
 
 #devtools::install_github("tidyverse/ggplot2")
-
+library(dplyr)
 required_packages <- function(x,y){
   for( i in x ){
     if( ! require( i , character.only = TRUE ) ){
@@ -140,13 +140,15 @@ soton_grid_resize <- raster::rasterize(as(soton_border, "Spatial"),
   raster::rasterToPolygons() %>%  # convert back to polygon
   st_as_sf() %>%  # result is a st object, then change to sf
   #.[soton_border, ] %>% 
-  filter(layer == 100)  
+  dplyr::filter(layer == 1)  # for some versions, this value should be changed to 100
+
 
 # check total number of cells
 #nrow(soton_grid_resample)
 
 # Plot the cells on satellite image and see if the resolution is satisfactory
-leaflet(width = "80%", height = 400) %>% 
+leaflet(width = "70%", height = 400) %>%  
+  # below: resolution fixed to avoid mouse accidentially draging map around
   addProviderTiles(providers$Esri.WorldImagery, options = providerTileOptions(maxZoom = 12,minZoom= 12)) %>% 
   #addTiles() %>% 
   addPolygons(data = soton_grid_resize, weight = 1, fillOpacity = 0) %>% 
@@ -154,53 +156,10 @@ leaflet(width = "80%", height = 400) %>%
 
 ```
 
-```{r}
-leaflet() %>% 
-  addTiles(options = providerTileOptions(maxZoom = 20,minZoom= 20)) %>% 
-  addPolygons(data=soton_grid_resize, color="red", weight = 1 ) %>% 
-  addPolygons(data=soton_grid, fillOpacity = 0) 
-```
-
-The map above shows that the two layers of grids are not aligned. Disaggregate does not split existing rasters. The plan is to create a raster using desireable resolution and extent. 
-
-```{r}
-## obtain extent of soton_grid, which I want the new grid to align with. 
-## Because the soton_grid has been converted to wgs 84, degree, the resolution cannot be defined by meters
-## So the first is to convert soton_grid back to crs 27700
-#soton_grid %>% 
-#  st_transform(27700) %>% 
-#  extent() -> soton_ext
-
-#grid_new <- raster::raster(soton_ext, res=100, crs="+proj=tmerc +lat_0=49 +lon_0=-2 +k=0.9996012717 +x_0=400000 +y_0=-100000 +ellps=airy +datum=OSGB36 +units=m +no_defs")
-
-## Check how much cells on each direcion, horizontal, ncol, and vertical, nrow
-#grid_new
-
-## Assign a number to each cell, so the raster is not NULL valued
-#values(grid_new) <- 1:ncell(grid_new)
-
-## Convert the raster to polygons and change to a CRS that leaflet recongnises (WSG 84)
-#grid_new <- grid_new %>% 
-#  rasterToPolygons() %>%  # result of this function is a st layer
-#  st_as_sf() %>%  # change to sf object
-#  st_transform(4326)
-
-
-#leaflet() %>% 
-#  addPolygons(data = grid_new) %>% 
-#  addPolygons(data = soton_grid, color="red", fillOpacity = 0)
-```
-
-
-
 
 Then a number of cells are to be randomly selected, and eyeball check to find out buildings with pv on roof. 
 
 ```{r}
-temp <- st_transform(soton_grid_resize[1,], 27700)
-st_area(temp)
-temp$
-
 set.seed(26)
 grid_sample <- soton_grid_resize %>% 
   mutate(ID = rownames(.)) %>% 
@@ -208,8 +167,8 @@ grid_sample <- soton_grid_resize %>%
 
 grid_sample$ID
 
-leaflet(width = "60%") %>% 
-  addProviderTiles(providers$Esri.WorldImagery) %>% 
+leaflet(width = "70%") %>% 
+  addProviderTiles(providers$Esri.WorldImagery, options = providerTileOptions(maxZoom = 12,minZoom= 12)) %>% 
   #addTiles() %>% 
   addPolygons(data = soton_border, color = "black", opacity = 1) %>% 
   addPolygons(data = grid_sample, 
@@ -217,20 +176,18 @@ leaflet(width = "60%") %>%
               opacity = 1 , 
               fillColor = "red" , fillOpacity = 0 , 
               popup = paste("ID: ", grid_sample$ID)) 
-class(grid_sample)  
-head(grid_sample)
+#class(grid_sample)  
+#head(grid_sample)
 #st_write(grid_sample, "./data/grid_sample2.shp",  layer_options = "GEOMETRY=AS_XY")
 ```
+
 
 ```{r}
 area <- (117111  - 116882 )* ( 441973  - 441671 )
 area
 ```
 
-
-
-
-Identify buildings with PV 
+## Identify buildings with PV 
 
 ```{r}
 
@@ -246,8 +203,8 @@ gaze_crop <- gaze[grid_sample,]
 #head(gaze_crop)
 #head(gaze)
 
-leaflet(width = "80%", height = 800) %>% 
-  addProviderTiles(providers$Esri.WorldImagery) %>% 
+leaflet(width = "70%") %>% 
+  addProviderTiles(providers$Esri.WorldImagery, options = providerTileOptions(maxZoom = 12,minZoom= 12)) %>% 
   #addTiles() %>% 
   addPolygons(data = grid_sample, weight = 2, 
               color = "red", opacity = 1 , 
@@ -298,14 +255,6 @@ leaflet(width="80%") %>%
 
 ```
 
-```{r}
-plot(soton_grid_resize)
-nrow(soton_grid_resize)
-```
-
-
-
-
 Patrick's comments: 
 1) 3 of 10 sample randomly selected areas are industrial and have no PV at the moment
 2) This result does not help the validation, and so no need to mention them
@@ -331,43 +280,53 @@ soton_grid_residential <- soton_grid_resize %>%
   summarise(Count = n() ) %>%  
   ungroup
 
-leaflet() %>% 
-  addTiles() %>% 
+leaflet(width="70%") %>% 
+  addTiles(options = providerTileOptions(maxZoom = 12,minZoom= 12)) %>% 
   addPolygons(data=soton_border, fillOpacity = 0, weight = 2, color = "blue") %>% 
   addPolygons(data = soton_grid_resize, fillOpacity = 0, 
               weight = 1, color="black") %>% 
   addScaleBar()
 ```
+```{r}
+
+st_area(st_transform(soton_grid_resize[1,], 27700))
+st_bbox(st_transform(soton_grid_resize[1,], 27700)) %>%
+  as.numeric() %>% 
+  unlist() %>% 
+  matrix(nrow = 1, byrow = T) %>% 
+  as.data.frame() %>% 
+  setNames(c("xmin", "ymin", "xmax", "ymax")) %>% 
+  mutate(x = xmax - xmin, y= ymax - ymin)
+```
+
+
 
 
 ```{r}
 
 # use distribution a histogram 
 median_soton_grid_res <- median(soton_grid_residential$Count)
+median_density <- round(median_soton_grid_res/67868*1000,1)
 
-min(soton_grid_residential$Count)
+#min(soton_grid_residential$Count)
 
-library(scales)
+#library(scales)
 ggplot(soton_grid_residential ) + 
   #geom_bar(aes(x=Count, y=..prop..) , stat = "count")+
   geom_histogram(aes(x=Count),stat = "bin" , bins = 30 , colour = "black")+
   geom_vline(xintercept = median_soton_grid_res, colour = "red")+
-  geom_text(aes(x=median_soton_grid_res +250 , 
-                y=130, 
-                label = paste("median of density =",median_soton_grid_res) ), 
-                nudge_x = 30 , 
-                color ="red" ) + 
-  labs(x = "Property density (thousands per square km)" ,  y="Proportion of areas having various density")+
-  scale_y_continuous(labels = function(x) paste(round(x/7.46 ,2 ), "%")) +
-  scale_x_continuous(labels = function(x) paste(round(x/67868*1000,0)) , breaks = seq(0,1000,200/100000*67868) )
+  geom_text(aes(x=median_soton_grid_res +150 , 
+                y=130, label = paste("median:", median_soton_grid_res)  ) , 
+            nudge_x = 10 , 
+            color ="red" , 
+            fontface='plain') + 
+  labs(x = "Number of properties in each block" ,  y="Blocks having various number of properties")+
+  #scale_y_continuous(labels = function(x) paste(round(x,2 ), "%")) +
+  scale_x_continuous( breaks = seq(0,1000, 100) )
   #ylim(0,150)
 
 ```
 
-
-```{r}
-
-```
 
 
 ```{r}
@@ -378,7 +337,7 @@ pal <- colorBin("YlOrRd", domain = soton_grid_residential$Count, bins = bins ,  
 soton_grid_residential%>% 
   filter(Count > 0) %>% 
   leaflet(width = "80%") %>% 
-  addTiles() %>% 
+  addTiles(options = providerTileOptions(maxZoom = 12,minZoom= 12)) %>% 
   addPolygons(data =  soton_border , weight = 2,
               fillOpacity = 0) %>% 
   addPolygons(fillColor = ~pal(Count), 
@@ -414,6 +373,21 @@ sampleID_all %>%
 ```
 
 
+```{r}
+head(allID)
+tempfuc <- function(x){
+  set.seed(x)
+  randid2 <- sample_n(allID, 10) %>% 
+    mutate(Seed = x, ID = ID)
+  return(randid2)
+}
+
+testsampleid <- lapply(seq(1:100) , tempfuc) %>% 
+  bind_rows() %>% 
+  filter(ID == 13)
+
+head(testsampleid)
+```
 
 ```{r}
 # The code below is to find out which seed would have Area No.13 included, 
@@ -423,8 +397,8 @@ set.seed(89)
 soton_grid_residential %>% 
   filter(Count > 0) %>% 
   sample_n(10) %>% 
-  leaflet(width = "100%", height="800") %>% 
-  addProviderTiles(providers$Esri.WorldImagery) %>% 
+  leaflet(width = "70%") %>% 
+  addProviderTiles(providers$Esri.WorldImagery, options = providerTileOptions(maxZoom = 12,minZoom= 12)) %>% 
   #addTiles() %>% 
   addPolygons(data = soton_border, color = "black", opacity = 1) %>% 
   addPolygons(weight = 2, color = "red", 
@@ -447,8 +421,8 @@ soton_grid_residential_only <- soton_grid_residential%>%
 
   
 soton_grid_residential_only %>% 
-  leaflet(width = "80%", height = "500px") %>% 
-  addTiles() %>% 
+  leaflet(width = "80%") %>% 
+  addTiles(options = providerTileOptions(maxZoom = 12,minZoom= 12)) %>% 
   addPolygons(data =  soton_border , weight = 2,
               fillOpacity = 0) %>% 
   addPolygons(fillColor = ~pal(Count), 
@@ -513,9 +487,10 @@ existingPV_soton <- sf::st_read("./data/existing_PV_in_southampton_10_sample_are
 ```{r}
 
 leaflet(width="80%") %>% 
-  addTiles() %>% 
+  #addTiles(options = providerTileOptions(maxZoom = 12,minZoom= 12)) %>% 
+  addTiles(options = providerTileOptions(maxZoom = 100)) %>% 
   addPolygons(data = grid_sample_residential, color = "red", weight = 2, opacity = 1, fillOpacity = 0) %>% 
-  addCircleMarkers(data=existingPV_soton, radius = 1, fillOpacity = 0, stroke = 1, 
+  addCircleMarkers(data=existingPV_soton, radius = 1, fillOpacity = 1, stroke = 1, 
                    popup = ~ADDRESS )
 ```
 
@@ -528,20 +503,19 @@ sra <- sf::st_read("./data/SRA_10_10_600.shp", quiet = T) %>%
   st_set_crs(27700) %>% # The original shp doesn't have crs, so define it as OSGB (27700)    
   st_transform(4326)  # convert CRS to wgs84 (from meter to degree) 
 
-soton_bld <- sf::st_read("./data/Buildings_grid.shp", quiet = T) %>% 
+soton_bld_grid <- sf::st_read("./data/Buildings_grid.shp", quiet = T) %>% 
   st_set_crs(27700) %>% # The original shp doesn't have crs, so define it as OSGB (27700)   
   st_transform(4326)  # convert CRS to wgs84 (from meter to degree) 
 
-sra
 
 leaflet(width="80%", height = "400") %>% 
 #  addTiles() %>% 
-  addProviderTiles(providers$Esri.WorldImagery) %>% 
+  addProviderTiles(providers$Esri.WorldImagery,options = providerTileOptions(maxZoom = 12,minZoom= 12)) %>% 
   #addPolygons(data = grid_sample_residential) %>% 
   addMarkers(data = existingPV_soton, 
 #                   fillOpacity = 1, fillColor = "red", stroke = 1, color = "red", 
                    popup = ~ADDRESS ) %>% 
-  addPolygons(data = soton_bld , fillOpacity = 0, 
+  addPolygons(data = soton_bld_grid , fillOpacity = 0, 
               color = "black", stroke = 0.2 , opacity = 1, popup = ~as.character(OBJECTID))  %>% 
   addPolygons(data = sra , fillOpacity = 0, 
               color = "blue", stroke = 1 )
@@ -553,7 +527,7 @@ Step 1: combine building polygons with points where PV are found using google sa
 
 ```{r}
 # merge existing PV (points) with building outlines (polygons)
-bld_w_PV <- soton_bld %>% 
+bld_w_PV <- soton_bld_grid %>% 
   st_join(existingPV_soton, join= st_contains ) %>% 
   filter(!is.na(POSTCODE)) %>%  # remove bld that don't have points in them
   #head()
@@ -567,7 +541,7 @@ bld_w_PV <- soton_bld %>%
 
 
 leaflet() %>% 
-  addTiles(options = providerTileOptions(maxZoom = 100)) %>% 
+  addTiles(options = providerTileOptions(maxZoom = 12,minZoom= 12)) %>% 
   addMarkers(data = existingPV_soton, 
 #                   fillOpacity = 1, fillColor = "red", stroke = 1, color = "red", 
                    popup = ~ADDRESS ) %>% 
@@ -601,7 +575,7 @@ head(bld_pv_gis)
 
 ```{r}
 leaflet() %>% 
-  addTiles(options = providerTileOptions(maxZoom = 100)) %>% 
+  addTiles(options = providerTileOptions(maxZoom = 12,minZoom= 12)) %>% 
   addMarkers(data = existingPV_soton, 
 #                   fillOpacity = 1, fillColor = "red", stroke = 1, color = "red", 
                    popup = ~ADDRESS ) %>% 
@@ -650,9 +624,162 @@ bld_pv_gis %>%
 ```
 
 
+Note for future improvements: 
+
+The "aggregate" function is found to be the reason why the newly created grid misaligns with the original grid. In addition, the "fact" parameter in the function does not produce a resolution that I wanted. The problem is illustrated as follows. 
+
+```{r}
+leaflet(width="300px", height="300px") %>% 
+  addTiles(options = providerTileOptions(maxZoom = 20,minZoom= 20)) %>% 
+  addPolygons(data=soton_grid_resize, color="red", weight = 1 ) %>% 
+  addPolygons(data=soton_grid, fillOpacity = 0) 
+```
+
+The map above shows that the two layers of grids are not aligned. Disaggregate does not split existing rasters. The plan is to create a raster using desireable resolution and extent. 
+
+```{r}
+## obtain extent of soton_grid, which I want the new grid to align with. 
+## Because the soton_grid has been converted to wgs 84, degree, the resolution cannot be defined by meters
+## So the first is to convert soton_grid back to crs 27700
+#soton_grid %>% 
+#  st_transform(27700) %>% 
+#  extent() -> soton_ext
+
+#grid_new <- raster::raster(soton_ext, res=100, crs="+proj=tmerc +lat_0=49 +lon_0=-2 +k=0.9996012717 +x_0=400000 +y_0=-100000 +ellps=airy +datum=OSGB36 +units=m +no_defs")
+
+## Check how much cells on each direcion, horizontal, ncol, and vertical, nrow
+#grid_new
+
+## Assign a number to each cell, so the raster is not NULL valued
+#values(grid_new) <- 1:ncell(grid_new)
+
+## Convert the raster to polygons and change to a CRS that leaflet recongnises (WSG 84)
+#grid_new <- grid_new %>% 
+#  rasterToPolygons() %>%  # result of this function is a st layer
+#  st_as_sf() %>%  # change to sf object
+#  st_transform(4326)
+
+
+#leaflet() %>% 
+#  addPolygons(data = grid_new) %>% 
+#  addPolygons(data = soton_grid, color="red", fillOpacity = 0)
+```
+
+
+# Statistics analysis
+
+In this section, statistical analysis is conducted to compare GIS model estimates with actual pv uptake. 
+
+The first thing is to see the proportion of buildings suitable for PV across all areas, to find out how the distribution looks like, and to compare the distribution with the 10 sample areas. 
+
+```{r}
+soton_bld <- sf::st_read("../GIS/Southampton/soton_bld_all.shp", quiet = T) %>% 
+  st_set_crs(27700) %>% # The original shp doesn't have crs, so define it as OSGB (27700)   
+  st_transform(4326)  # convert CRS to wgs84 (from meter to degree) 
+
+# select only residential buildings
+soton_residential_bld <- soton_bld %>% 
+  rename(BID = OBJECTID) %>% 
+  st_join(gaze_residential, join=st_intersects) %>% 
+  filter(!is.na(POSTCODE)) %>% 
+  group_by(BID) %>% 
+  summarise(Properties_per_bld = n(), # count of properties per building
+            POSTCODE = head(POSTCODE,1) ,
+            STREETNAME = head(STREETNAME ,1) , 
+            TYPE =head(TYPE ,1) ) 
+
+head(gaze_residential)
+head(soton_residential_bld2)
+# 
+summary(soton_residential_bld$Properties_per_bld)
+
+# max number of properties in one building is 468 - Southampton Dell 
+soton_residential_bld %>% 
+  arrange(desc(Properties_per_bld)) %>% 
+  head() %>% 
+  leaflet(width = "70%") %>% 
+    addTiles() %>% 
+    addPolygons(popup = ~as.character(STREETNAME))
+
+
+```
+
+Find out number of buildings per grid cell, and plot distribution
+```{r}
+# Use centroid point to represent location of buildings 
+
+soton_res_bld_centroid <- soton_residential_bld %>% 
+  st_centroid()
+
+soton_grid_bld_density <- soton_grid_resize %>% 
+  mutate(GRIDID = seq.int(n())) %>% 
+  #head()
+  st_join(soton_res_bld_centroid, join=st_intersects) %>% 
+  filter(!is.na(STREETNAME)) %>% 
+  group_by(GRIDID) %>% 
+  summarise(bld_density = n())
+
+
+fig_soton_grid_bld_density <- soton_grid_bld_density %>% 
+  ggplot()+
+  geom_histogram(aes(x=bld_density), bins = 12)
+
+fig_grid_sample_bld <- soton_grid_sample %>% 
+  ggplot()+
+    geom_histogram(aes(x=Count), bins = 3)
+
+grid.arrange(fig_soton_grid_bld_density , fig_grid_sample_bld, nrow = 1)
+
+```
+
+```{r}
+
+soton_grid_sample %>% 
+  #head()
+  ggplot()+
+    geom_histogram(aes(x=Count), bins = 3)
+
+
+  leaflet() %>% 
+    addTiles() %>% 
+    addPolygons(popup = ~as.character(bld_density)) %>% 
+    addPolygons(data = soton_residential_bld)
+
+
+temp1 %>% 
+  st_centroid() %>% 
+  #head()
+  leaflet() %>% 
+    addTiles() %>% 
+    addMarkers(popup = ~as.character(Properties_per_bld)) %>% 
+    addPolygons(data=temp1)
+```
 
 
 
+
+
+
+
+
+```{r}
+leaflet() %>% 
+  addTiles(options = providerTileOptions(maxZoom = 100)) %>% 
+  addMarkers(data = existingPV_soton, 
+#                   fillOpacity = 1, fillColor = "red", stroke = 1, color = "red", 
+                   popup = ~ADDRESS ) %>% 
+  addPolygons(data = bld_w_PV, 
+              color="black" , stroke = 1, opacity = 1, 
+              popup = ~as.character(BID)) %>% 
+  addPolygons(data = sra , fillOpacity = 0, 
+              color = "blue", stroke = 1 , popup = ~as.character(Id) ) %>% 
+  addPolygons(data = soton_bld)
+  addPolygons(data = bld_pv_gis , fillOpacity = 0, 
+              color = "green", stroke = 1 , popup = ~as.character(paste("<b>BID:</b> ", BID, "<br/>", 
+                                                                        "<b>NPV: </b>", NPV , "<br/>",
+                                                                        "<b>NGIS:</b>",NGIS , "<br/>" ) )) 
+
+```
 
 
 
