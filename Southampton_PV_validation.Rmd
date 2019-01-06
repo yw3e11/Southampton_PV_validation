@@ -128,8 +128,8 @@ soton_grid <- uk_grid[soton_border,]
 raster_base <- raster::raster(as(soton_grid, "Spatial")) %>% 
   disaggregate(fact = 4) # resize by a factor of 4
 
-ncell(raster_base)
-nrow(raster_base)
+#ncell(raster_base)
+#nrow(raster_base)
 
 # Then overlay any shp with base raster layer, and extract values
 # in this case, the fraction of coverage is extracted using 'getCover' 
@@ -264,22 +264,9 @@ Patrick's comments:
 
 # Re-select sample areas from residential areas, and eyeball existing PV. 
 
+Grid for sample selection 
+
 ```{r}
-# create a subset of gazetteer for residential properties only
-gaze_residential <- gaze %>% 
-  #head()
-  filter(str_detect(TYPE, "Residential"))
-
-# Find out how many gazetteer points are in each grid cell 
-soton_grid_residential <- soton_grid_resize %>%
-  mutate(ID = seq.int(n())) %>% 
-  st_join(gaze_residential, join = st_intersects) %>% # st_join creates a large number of pairs 
-  filter(!is.na(POSTCODE)) %>%  # filter out empty joins
-  #head()
-  group_by(ID) %>% 
-  summarise(Count = n() ) %>%  
-  ungroup
-
 leaflet(width="70%") %>% 
   addTiles(options = providerTileOptions(maxZoom = 12,minZoom= 12)) %>% 
   addPolygons(data=soton_border, fillOpacity = 0, weight = 2, color = "blue") %>% 
@@ -287,6 +274,9 @@ leaflet(width="70%") %>%
               weight = 1, color="black") %>% 
   addScaleBar()
 ```
+
+Use st_bbox function to find out the dimension of each cell 
+
 ```{r}
 
 st_area(st_transform(soton_grid_resize[1,], 27700))
@@ -299,13 +289,38 @@ st_bbox(st_transform(soton_grid_resize[1,], 27700)) %>%
   mutate(x = xmax - xmin, y= ymax - ymin)
 ```
 
+
+```{r}
+# create a subset of gazetteer for residential properties only
+# This is all properties (households) 
+gaze_residential <- gaze %>% 
+  #head()
+  filter(str_detect(TYPE, "Residential"))
+
+
+# Find out how many gazetteer points are in each grid cell 
+soton_grid_residential <- soton_grid_resize %>%
+  mutate(Grid_ID = seq.int(n())) %>% 
+  st_join(gaze_residential, join = st_intersects) %>% # st_join creates a large number of pairs 
+  filter(!is.na(POSTCODE)) %>%  # filter out empty joins. But this removes the cell entirely, instead of returning 0
+  #head()
+  group_by(Grid_ID) %>% 
+  #summarise(Count_property = sum(!is.na(POSTCODE)) ) %>%  
+  summarise(Count_property = n()) %>% 
+  #head(10)
+  ungroup 
+
+```
+
+
+
 ## Preparation for Sample Selection
 ### histogram of property density across city
 
 ```{r}
 
 # use distribution a histogram 
-median_soton_grid_res <- median(soton_grid_residential$Count)
+median_soton_grid_res <- median(soton_grid_residential$Count_property)
 median_density <- round(median_soton_grid_res/67868*1000,1)
 
 #min(soton_grid_residential$Count)
@@ -313,17 +328,19 @@ median_density <- round(median_soton_grid_res/67868*1000,1)
 #library(scales)
 ggplot(soton_grid_residential ) + 
   #geom_bar(aes(x=Count, y=..prop..) , stat = "count")+
-  geom_histogram(aes(x=Count),stat = "bin" , bins = 30 , colour = "black")+
+  geom_histogram(aes(x=Count_property),stat = "bin" , bins = 30 , colour = "black")+
   geom_vline(xintercept = median_soton_grid_res, colour = "red")+
   geom_text(aes(x=median_soton_grid_res +150 , 
                 y=130, label = paste("median:", median_soton_grid_res)  ) , 
             nudge_x = 10 , 
             color ="red" , 
             fontface='plain') + 
-  labs(x = "Number of properties in each block" ,  y="Blocks having various number of properties")+
+  labs(x = "Number of properties in each block" ,  
+       y="Number of blocks" , 
+       title = "Property density across city")+
   #scale_y_continuous(labels = function(x) paste(round(x,2 ), "%")) +
   scale_x_continuous( breaks = seq(0,1000, 100) )
-  #ylim(0,150)
+  ylim(0,150)
 
 ```
 
@@ -331,51 +348,28 @@ ggplot(soton_grid_residential ) +
 
 ```{r}
 # Show the distribution on map 
-bins_property_density <- quantile(soton_grid_residential$Count, seq(from = 0.1, to =1, by=0.2))
-pal_property_density <- colorBin("YlOrRd", domain = soton_grid_residential$Count, 
+bins_property_density <- quantile(soton_grid_residential$Count_property, seq(from = 0.2, to =1, by=0.1))
+pal_property_density <- colorBin("YlOrRd", domain = soton_grid_residential$Count_property, 
                 bins = bins_property_density ,  na.color = "#ffffff00")
 
 soton_grid_residential%>% 
-  filter(Count > 0) %>% 
+  #filter(Count_property > 0) %>% 
   leaflet(width = "80%") %>% 
   addTiles(options = providerTileOptions(maxZoom = 12,minZoom= 12)) %>% 
   addPolygons(data =  soton_border , weight = 2,
               fillOpacity = 0) %>% 
-  addPolygons(fillColor = ~pal_property_density(Count), 
+  addPolygons(fillColor = ~pal_property_density(Count_property), 
               weight = 1, color="black" , 
               fillOpacity = 1 , 
-              label = ~as.character(Count)) %>% 
+              label = ~as.character(Grid_ID)) %>% 
   addLegend("bottomright", 
             pal=pal_property_density, 
-            values = ~Count, 
+            values = ~Count_property, 
             title = "Property count" , 
             opacity = 1 , na.label = "empty") %>% 
   addScaleBar() 
 
 
-```
-Below is just to find how to create a list of sample using seeds
-
-```{r}
-temp <- soton_grid_residential %>% 
-  filter(Count >0) 
-
-allID <- data.frame(ID = temp$ID)
-
-sampleID_all <- data.frame(Seed = as.integer(), 
-                           AreaID = as.integer())
-
-for (i in seq(1:100)){
-  set.seed(i)
-  randID <- sample_n(allID, 10) %>% 
-    mutate(Seed = i, ID = ID)
-  sampleID_all <- rbind(sampleID_all, randID)
-  #print(sampleID_all)
-}
-
-sampleID_all %>% 
-  filter(ID == 13) 
-  
 ```
 
 
@@ -383,37 +377,54 @@ sampleID_all %>%
 # The code below is to find out which seed would have Area No.13 included, 
 # which is upper bassett, a residential area with large number of PV
 
-head(allID)
+allID <-soton_grid_residential %>% 
+  filter(Count_property > 0 ) %>% 
+  st_set_geometry(NULL) %>% 
+  select(Grid_ID) 
+
+allID
+
 tempfuc <- function(x){
   set.seed(x)
   randid2 <- sample_n(allID, 10) %>% 
-    mutate(Seed = x, ID = ID)
+    mutate(Seed = x, Grid_ID = Grid_ID)
   return(randid2)
 }
 
-testsampleid <- lapply(seq(1:100) , tempfuc) %>% 
+lapply(seq(1:100) , tempfuc) %>% 
   bind_rows() %>% 
-  filter(ID == 13)
+  #head()
+  filter(Grid_ID == 13) %>% 
+  head()
 
-head(testsampleid)
 ```
 ## Sample selection
 
 ```{r}
 set.seed(89) 
 soton_grid_residential %>% 
-  filter(Count > 0) %>% 
+  filter(Count_property > 0) %>% 
+  #filter(Count_property >= quantile(soton_grid_residential$Count_property, 0.2) ) %>% 
   sample_n(10) %>% 
   leaflet(width = "70%") %>% 
-  addProviderTiles(providers$Esri.WorldImagery, options = providerTileOptions(maxZoom = 12,minZoom= 12)) %>% 
-  #addTiles() %>% 
+  #addProviderTiles(providers$Esri.WorldImagery, options = providerTileOptions(maxZoom = 12,minZoom= 12)) %>% 
+  addTiles() %>% 
   addPolygons(data = soton_border, color = "black", opacity = 1) %>% 
-  addPolygons(weight = 2, color = "red", 
-              opacity = 1 , fillColor = "red" , fillOpacity = 0 , 
-              label = ~paste("ID: ", ID), 
+  addPolygons(data = soton_grid_residential, fillColor = ~pal_property_density(Count_property), 
+              weight = 1, color="black" , 
+              fillOpacity = 1 , 
+              label = ~as.character(Grid_ID)) %>% 
+  addPolygons(weight = 2, color = "blue", 
+              opacity = 1  , fillOpacity = 0 , 
+              label = ~paste("ID: ", Grid_ID), 
               labelOptions = labelOptions(noHide = T))
 
 ```
+
+
+
+
+
 
 ### Map: property density VS sample selection
 
@@ -421,22 +432,19 @@ soton_grid_residential %>%
 
 set.seed(89) 
 soton_grid_residential %>% 
-  filter(Count > 0) %>% 
+  filter(Count_property > 0) %>% 
   sample_n(10) ->soton_grid_sample
 
-soton_grid_residential_only <- soton_grid_residential%>% 
-  filter(Count > 0) 
 
-  
-soton_grid_residential_only %>% 
+soton_grid_residential %>% 
   leaflet(width = "80%") %>% 
   addTiles(options = providerTileOptions(maxZoom = 12,minZoom= 12)) %>% 
   addPolygons(data =  soton_border , weight = 2,
               fillOpacity = 0) %>% 
-  addPolygons(fillColor = ~pal_property_density(Count), 
+  addPolygons(fillColor = ~pal_property_density(Count_property), 
               weight = 0, color="black" , 
               fillOpacity = 1 , 
-              label = ~as.character(Count)) %>% 
+              label = ~as.character(Count_property)) %>% 
   addPolygons(data = soton_grid_resize, 
               fillOpacity = 0, 
               weight = 1, color = "black") %>% 
@@ -445,49 +453,61 @@ soton_grid_residential_only %>%
   addLegend("bottomright",  data = soton_grid_sample, colors = "blue", opacity = 0, labels = "Sample area" ) %>% 
   addLegend("bottomright", 
             pal=pal_property_density, 
-            values = ~Count, 
+            values = ~Count_property, 
             title = "Property count" , 
             opacity = 1) %>%   
   addScaleBar() 
 ```
 
+For an unknown reason, the sample areas under Seed 89 show about 3 miss match areas, which are adjacent to intended areas, which have been visually examined. 
 
+Therefore, the sample areas that will be used in future analysis, will be from a list shown below: 
 
+13, 51, 134, 173, 502, 528, 585, 674, 692, 650 
 
 ```{r}
 # randomly select 10 areas among those cells with at least 1 residential property
 # use seed 89 as it includes Upper bassett where a large number of PV are found
-set.seed(89)
-grid_sample_residential <- soton_grid_residential %>% 
-  filter(Count > 0) %>% 
-  sample_n(10) 
+#set.seed(89)
+#grid_sample_residential <- soton_grid_residential %>% 
+#  #filter(Count_property > 0) %>% 
+#  sample_n(10) 
 
-head(grid_sample_residential,10)
+#head(grid_sample_residential,10)
+
+
+Sample_grid <- soton_grid_residential %>% 
+  filter(Grid_ID %in% c(13, 51, 134, 173, 502, 528, 585, 674, 692, 650 ))
+
 
 # subset gazetteer data for only those in sample areas
-gaze_crop_residential <- gaze[grid_sample_residential,]
+Sample_gaze_residential <- gaze[Sample_grid,] %>% 
+  filter(grepl("Residential" , TYPE))
 ```
+
 
 ```{r}
-nrow(gaze_crop_residential)
+nrow(Sample_gaze)
 ```
-
-
-The sample points are then exported to KML, and imported to google earth to eyeball existing pv
-
-Google earth's imagery date: 5/26/2017 
-
 ```{r}
-#st_write(gaze_crop_residential, "./data/test89.kml")
+head(Sample_grid)
 
-# Also exported 10 sample areas. 
-#st_write(grid_sample_residential, "grid_test.kml")
+Sample_grid_1 <- Sample_grid %>% 
+  select(Grid_ID) %>%
+  st_join(Sample_gaze_residential, join=st_intersects) %>% 
+  #head()
+  #filter(grepl("Residential", TYPE)) %>% 
+  #nrow()
+  #head(10)
+  group_by(Grid_ID) %>% 
+  summarise(Count_gaze = n()) 
+  #summarise(Count_gaze = sum(!is.na(POSTCODE))) %>% 
+  #head(10)
+
 ```
 
-```{r}
-head(grid_sample)
-```
 
+## EXISTING PV
 
 All the selected buildings were eyeballed using Google earth, and the results are imported backed to R.
 
@@ -498,404 +518,178 @@ existingPV_soton <- sf::st_read("./data/existing_PV_in_southampton_10_sample_are
 
 ```
 
-### Map: actual PV
+### Map: existing PV
 
 ```{r}
-
+# map showing all existing PVs together with the 10 sample areas
 leaflet(width="80%") %>% 
   #addTiles(options = providerTileOptions(maxZoom = 12,minZoom= 12)) %>% 
   addTiles(options = providerTileOptions(maxZoom = 100)) %>% 
-  addPolygons(data = grid_sample_residential, color = "red", weight = 2, opacity = 1, fillOpacity = 0) %>% 
+  addPolygons(data = Sample_grid, color = "red", weight = 2, opacity = 1, 
+              fillOpacity = 0.5, fillColor = "red") %>% 
+  #addPolygons(data = soton_grid_residential, color = "black", 
+  #            fillOpacity = 0, opacity = 1, 
+  #            popup = ~as.character(Grid_ID)) %>% 
   addCircleMarkers(data=existingPV_soton, radius = 1, fillOpacity = 1, stroke = 1, 
                    popup = ~ADDRESS )
 ```
 
 
-### 1. Map: model estimates
+
+
+### Number of existing PV in each cell 
+
+Total number of properties in sample areas is 1554, of which 44 have installed PV, accounting to 2.8%. The distribution of these systems is not evenly distributed, geographically. 
+
 
 ```{r}
-# sra - Suitable Roof Area
-# Attempt 1: slope STD=10, aspect STD=10, AreaSol=10
 
-sra <- sf::st_read("./data/SRA_10_10_600.shp", quiet = T) %>% 
-  st_set_crs(27700) %>% # The original shp doesn't have crs, so define it as OSGB (27700)    
-  st_transform(4326)  # convert CRS to wgs84 (from meter to degree) 
-
-soton_bld_grid <- sf::st_read("./data/Buildings_grid.shp", quiet = T) %>% 
-  st_set_crs(27700) %>% # The original shp doesn't have crs, so define it as OSGB (27700)   
-  st_transform(4326)  # convert CRS to wgs84 (from meter to degree) 
-
-
-leaflet(width="80%", height = "400") %>% 
-#  addTiles() %>% 
-  addProviderTiles(providers$Esri.WorldImagery,options = providerTileOptions(maxZoom = 12,minZoom= 12)) %>% 
-  #addPolygons(data = grid_sample_residential) %>% 
-  addMarkers(data = existingPV_soton, 
-#                   fillOpacity = 1, fillColor = "red", stroke = 1, color = "red", 
-                   popup = ~ADDRESS ) %>% 
-  addPolygons(data = soton_bld_grid , fillOpacity = 0, 
-              color = "black", stroke = 0.2 , opacity = 1, popup = ~as.character(OBJECTID))  %>% 
-  addPolygons(data = sra , fillOpacity = 0, 
-              color = "blue", stroke = 1 )
-
-
-```
-
-### 2: Map: combine building polygons with actual PV. 
-
-```{r}
-# merge existing PV (points) with building outlines (polygons)
-bld_w_PV <- soton_bld_grid %>% 
-  st_join(existingPV_soton, join= st_contains ) %>% 
-  filter(!is.na(POSTCODE)) %>%  # remove bld that don't have points in them
+Sample_grid_PV <- Sample_grid_1 %>% 
   #head()
-  group_by(OBJECTID) %>% 
-  summarise(Count = n()  ) %>%
-  filter(Count > 0) %>%  # 
-  ungroup()  %>%
-  mutate(BID = OBJECTID, NPV = Count) %>%
-  dplyr::select(-OBJECTID, -Count)
-  
-
-
-leaflet(width="70%") %>% 
-  addTiles(options = providerTileOptions(maxZoom = 12,minZoom= 12)) %>% 
-  addMarkers(data = existingPV_soton, 
-#                   fillOpacity = 1, fillColor = "red", stroke = 1, color = "red", 
-                   popup = ~ADDRESS ) %>% 
-  addPolygons(data = bld_w_PV, 
-              color="black" , stroke = 1, opacity = 1, 
-              popup = ~as.character(BID)) %>% 
-  addPolygons(data = sra , fillOpacity = 0, 
-              color = "blue", stroke = 1 , popup = ~as.character(Id) )
-
-
-```
-
-### 2. See overlap of buildings-PV and GIS estimates.
-
-```{r}
-bld_w_PV %>% 
-  #head()
-  st_join(sra ,  join = st_intersects) %>% 
-  #filter(BID == 53951) 
-  #filter(!is.na(Id)) %>% 
-  #nrow()
-  #head()
-  group_by(BID, NPV) %>% 
-  summarise(NGIS = sum(!is.na(Id)), AGIS = sum(Shape_Area)) %>% 
-  #filter(BID == 53951) %>% 
-  #head()
-  ungroup() -> bld_pv_gis
-
-head(bld_pv_gis)
-```
-
-### Actual PV versus model estimates
-
-```{r}
-leaflet() %>% 
-  addTiles(options = providerTileOptions(maxZoom = 12,minZoom= 12)) %>% 
-  addMarkers(data = existingPV_soton, 
-#                   fillOpacity = 1, fillColor = "red", stroke = 1, color = "red", 
-                   popup = ~ADDRESS ) %>% 
-  addPolygons(data = bld_w_PV, 
-              color="black" , stroke = 1, opacity = 1, 
-              popup = ~as.character(BID)) %>% 
-  addPolygons(data = sra , fillOpacity = 0, 
-              color = "blue", stroke = 1 , popup = ~as.character(Id) ) %>% 
-  addPolygons(data = bld_pv_gis , fillOpacity = 0, 
-              color = "green", stroke = 1 , popup = ~as.character(paste("<b>BID:</b> ", BID, "<br/>", 
-                                                                        "<b>NPV: </b>", NPV , "<br/>",
-                                                                        "<b>NGIS:</b>",NGIS , "<br/>" ) ))
-
-```
-
-```{r}
-head(bld_pv_gis)
-
-bld_pv_gis %>% 
-  #nrow()
-  arrange(NPV, NGIS) %>% 
-  #arrange(desc(NPV), desc(AGIS)) %>% 
-  head()
-```
-
-
-
-
-# Note for future improvements: 
-
-The "aggregate" function is found to be the reason why the newly created grid misaligns with the original grid. In addition, the "fact" parameter in the function does not produce a resolution that I wanted. The problem is illustrated as follows. 
-
-```{r}
-leaflet(width="300px", height="300px") %>% 
-  addTiles(options = providerTileOptions(maxZoom = 20,minZoom= 20)) %>% 
-  addPolygons(data=soton_grid_resize, color="red", weight = 1 ) %>% 
-  addPolygons(data=soton_grid, fillOpacity = 0) 
-```
-
-The map above shows that the two layers of grids are not aligned. Disaggregate does not split existing rasters. The plan is to create a raster using desireable resolution and extent. 
-
-```{r}
-## obtain extent of soton_grid, which I want the new grid to align with. 
-## Because the soton_grid has been converted to wgs 84, degree, the resolution cannot be defined by meters
-## So the first is to convert soton_grid back to crs 27700
-#soton_grid %>% 
-#  st_transform(27700) %>% 
-#  extent() -> soton_ext
-
-#grid_new <- raster::raster(soton_ext, res=100, crs="+proj=tmerc +lat_0=49 +lon_0=-2 +k=0.9996012717 +x_0=400000 +y_0=-100000 +ellps=airy +datum=OSGB36 +units=m +no_defs")
-
-## Check how much cells on each direcion, horizontal, ncol, and vertical, nrow
-#grid_new
-
-## Assign a number to each cell, so the raster is not NULL valued
-#values(grid_new) <- 1:ncell(grid_new)
-
-## Convert the raster to polygons and change to a CRS that leaflet recongnises (WSG 84)
-#grid_new <- grid_new %>% 
-#  rasterToPolygons() %>%  # result of this function is a st layer
-#  st_as_sf() %>%  # change to sf object
-#  st_transform(4326)
-
-
-#leaflet() %>% 
-#  addPolygons(data = grid_new) %>% 
-#  addPolygons(data = soton_grid, color="red", fillOpacity = 0)
-```
-
-
-# Building density 
-
-In this section, statistical analysis is conducted to compare GIS model estimates with actual pv uptake. 
-
-The first thing is to see the proportion of buildings suitable for PV across all areas, to find out how the distribution looks like, and to compare the distribution with the 10 sample areas. 
-
-```{r}
-soton_bld <- sf::st_read("../GIS/Southampton/soton_bld_all.shp", quiet = T) %>% 
-  st_set_crs(27700) %>% # The original shp doesn't have crs, so define it as OSGB (27700)   
-  st_transform(4326)  # convert CRS to wgs84 (from meter to degree) 
-
-# select only residential buildings
-soton_residential_bld <- soton_bld %>% 
-  rename(BID = OBJECTID) %>% 
-  st_join(gaze_residential, join=st_intersects) %>% 
-  filter(!is.na(POSTCODE)) %>% 
-  group_by(BID) %>% 
-  summarise(Properties_per_bld = n(), # count of properties per building
-            POSTCODE = head(POSTCODE,1) ,
-            STREETNAME = head(STREETNAME ,1) , 
-            TYPE =head(TYPE ,1) ) 
-
-head(gaze_residential)
-head(soton_residential_bld2)
-# 
-summary(soton_residential_bld$Properties_per_bld)
-
-# max number of properties in one building is 468 - Southampton Dell 
-soton_residential_bld %>% 
-  arrange(desc(Properties_per_bld)) %>% 
-  head() %>% 
-  leaflet(width = "70%") %>% 
-    addTiles() %>% 
-    addPolygons(popup = ~as.character(STREETNAME))
-
-
-```
-
-### Distribution comparison 
-Find out number of buildings per grid cell, and plot distribution
-```{r}
-# Use centroid point to represent location of buildings 
-
-soton_res_bld_centroid <- soton_residential_bld %>% 
-  st_centroid()
-
-# Count number of building centroids per grid cell
-soton_grid_bld_density <- soton_grid_resize %>% 
-  mutate(GRIDID = seq.int(n())) %>% 
-  #head()
-  st_join(soton_res_bld_centroid, join=st_intersects) %>% 
-  filter(!is.na(STREETNAME)) %>% 
-  group_by(GRIDID) %>% 
-  summarise(bld_density = n())
-
-# Count number of building centroids in each sample cell
-soton_sample_grid_bld_density <- soton_grid_sample %>% 
-  #mutate(GRIDID = seq.int(n())) %>% 
-  #head()
-  st_join(soton_res_bld_centroid, join=st_intersects) %>% 
-  filter(!is.na(STREETNAME)) %>% 
-  group_by(ID) %>% 
-  summarise(bld_density = n())
-
-
-fig_soton_grid_bld_density <- ggplot(soton_grid_bld_density, aes(x = bld_density)) +  
-        geom_bar(aes(y = (..count..)/sum(..count..)), binwidth =10) + 
-        ## version 3.0.0
-        labs(y="Percentage")
-
-fig_grid_sample_bld <- ggplot(soton_sample_grid_bld_density, aes(x = bld_density)) +  
-        geom_bar(aes(y = (..count..)/sum(..count..)), binwidth =5) + 
-    labs(y="")
-
-grid.arrange(fig_soton_grid_bld_density , fig_grid_sample_bld, nrow = 1)
-
-```
-
-The diagram above compares the building density histogram between all cells in Southampton and those sample cells. It shows that the samples have a wide range of building density, which is close to the full range of building density across the city. 
-
-```{r}
-sample_grid_bld_density_aggr <- soton_sample_grid_bld_density$bld_density %>% 
-  # It was later found geom_histogram function uses range as [0,50), which is different to cut function, 
-  # where each range is (0,50]. 
-  # therefore, the "rignt = FALSE" logic is specified to make sure the function returns same result
-  cut(breaks = seq(0, 150, 15) , right = F) %>%  # see above
-  table() %>% 
-  as.data.frame(  ) %>% 
-  setnames(c("range", "Freq")) 
-
-grid_bld_density_aggr <- soton_grid_bld_density$bld_density %>% 
-  # It was later found geom_histogram function uses range as [0,50), which is different to cut function, 
-  # where each range is (0,50]. 
-  # therefore, the "rignt = FALSE" logic is specified to make sure the function returns same result
-  cut(breaks = seq(0, 150, 15) , right = F) %>%  # see above
-  table() %>% 
-  as.data.frame(  ) %>% 
-  setnames(c("range", "Freq")) 
-
-ggplot()+
-  geom_bar(data=grid_bld_density_aggr, 
-           aes(x= range, y=Freq ) , 
-           stat = "identity" , 
-           fill = "green", 
-           colour = "black")+ 
-  geom_bar(data = sample_grid_bld_density_aggr , 
-           aes(x=range, y=Freq), 
-           stat="identity" , 
-           fill = "red" , 
-           colour = "black") + 
-    geom_text(data = grid_bld_density_aggr , 
-            aes(x=range, y=Freq, label = Freq), 
-            vjust = -0.5) +
-    geom_text(data = sample_grid_bld_density_aggr , 
-            aes(x=range, y=Freq, label = Freq), 
-            vjust = -0.5) +
-  theme(axis.text.x = element_text(angle = 90, hjust = 1))+
-  labs(x="Number of buildings in an area", 
-       y="Repetition")
-
-
-```
-
-
-```{r}
-sample_grid_bld_density_aggr <- soton_sample_grid_bld_density$bld_density %>% 
-  # It was later found geom_histogram function uses range as [0,50), which is different to cut function, 
-  # where each range is (0,50]. 
-  # therefore, the "rignt = FALSE" logic is specified to make sure the function returns same result
-  cut(breaks = seq(0, 150, 30) , right = F) %>%  # see above
-  table() %>% 
-  as.data.frame(  ) %>% 
-  setnames(c("range", "Freq")) 
-
-grid_bld_density_aggr <- soton_grid_bld_density$bld_density %>% 
-  # It was later found geom_histogram function uses range as [0,50), which is different to cut function, 
-  # where each range is (0,50]. 
-  # therefore, the "rignt = FALSE" logic is specified to make sure the function returns same result
-  cut(breaks = seq(0, 150, 30) , right = F) %>%  # see above
-  table() %>% 
-  as.data.frame(  ) %>% 
-  setnames(c("range", "Freq")) 
-
-F_bldden_city <- ggplot()+
-  geom_bar(data=grid_bld_density_aggr, 
-           aes(x= range, y=Freq ) , 
-           stat = "identity" , 
-           fill = "green", 
-           colour = "black")+  
-    geom_text(data = grid_bld_density_aggr , 
-            aes(x=range, y=Freq, label = Freq), 
-            vjust = -0.5) + 
-    labs(x="", y="Number of areas" , title = "City")+  
-    theme(axis.text.x = element_text(angle = 90, hjust = 1))
-
-F_bldden_sample <- ggplot()+
-  geom_bar(data = sample_grid_bld_density_aggr , 
-           aes(x=range, y=Freq), 
-           stat="identity" , 
-           fill = "red" , 
-           colour = "black") + 
-    geom_text(data = sample_grid_bld_density_aggr , 
-            aes(x=range, y=Freq, label = Freq), 
-            vjust = -0.5) +
-    labs(y="", x="", title= "Sampel areas (n=10)")+ 
-    theme(axis.text.x = element_text(angle = 90, hjust = 1))
-
-grid.arrange(F_bldden_city, F_bldden_sample, nrow = 1, 
-             bottom = "Number of buildings in each area" )
-
-
-```
-
-
-
-### Map of building density versus sample selection
-
-```{r}
-# Create a list of colour pallett
-bins_bld_density <- quantile(soton_grid_bld_density$bld_density, seq(from = 0, to =1, by=0.2))
-pal_bld_density <- colorBin("YlOrRd", domain = soton_grid_bld_density$bld_density, 
-                bins = bins_bld_density ,  na.color = "black") #na.color = "#ffffff00"
-
-soton_grid_bld_density%>% 
-  #filter(Count > 0) %>% 
-  leaflet(width = "80%") %>% 
-  addTiles(options = providerTileOptions(maxZoom = 12,minZoom= 12)) %>% 
-  addPolygons(data =  soton_border , weight = 2,
-              fillOpacity = 0) %>% 
-  addPolygons(fillColor = ~pal_bld_density(bld_density), 
-              weight = 1, color="black" , 
-              fillOpacity = 1 , 
-              label = ~as.character(bld_density)) %>% 
-  addPolygons(data = grid_sample_residential, fillOpacity = 0, 
-              color = "blue", stroke = 1, opacity = 1) %>% 
+  st_join(existingPV_soton, join= st_intersects ) %>% 
+  #head(100)
+  group_by(Grid_ID) %>% 
+  summarise(Count_PV = sum(!is.na(ADDRESS)) , Count_gaze=Count_gaze[1]) 
+
+
+
+bin_PV <- c(0, 1  , 3 , 10,16)
+pal_PV <- colorBin("YlOrRd", domain = Sample_grid_PV, right = F, 
+                   bins = bin_PV, na.color = "#ffffff00")
+
+pal_PV(Sample_grid_PV$Count_PV)
+
+colorBin("YlOrRd", right = F, domain = NULL , 
+                   bins = bin_PV, na.color = "#ffffff00")(Sample_grid_PV$Count_PV)
+
+leaflet(data = Sample_grid_PV) %>% 
+  addTiles(options =providerTileOptions(maxZoom = 12,minZoom= 12) ) %>% 
+  #addTiles() %>% 
+  addPolygons(data =  soton_border , weight = 2, color = "black",
+              popup = ~CITY ,
+              fillOpacity = 0) %>%   
+  addPolygons(fillOpacity = 1, opacity = 1, 
+              color = "black" , weight =1, 
+              #fillColor = ~pal_PV(Count_PV), 
+              fillColor = ~colorBin("YlOrRd", domain = NULL, bins = bin_PV)(Count_PV)  , 
+              popup = ~as.character(Count_PV)) %>% 
+  #addPolygons(data = sra_sample) %>% 
   addLegend("bottomright", 
-            pal=pal_bld_density, 
-            values = ~bld_density, 
-            title = "Building count" , 
+            pal=colorBin("YlOrRd", domain = NULL, bins = bin_PV), 
+            values = ~Count_PV, 
+            title = "PV count" , 
             opacity = 1 , na.label = "empty") %>% 
   addScaleBar() 
 
 
+  
 ```
 
+To count the number of model identified buildings (in fact, properties) in each area, the sra is firstly combined with building polygons (again, property polygons)
+
+```{r}
+Sample_sra <- sf::st_read("./data/SRA_10_10_600.shp", quiet = T) %>% 
+  st_set_crs(27700) %>% # The original shp doesn't have crs, so define it as OSGB (27700) 
+  st_transform(4326)  # convert CRS to wgs84 (from meter to degree) 
+
+Sample_property <- sf::st_read("./data/Area_building_grid.shp", quiet = T) %>% 
+  st_set_crs(27700) %>% # The original shp doesn't have crs, so define it as OSGB (27700)   
+  st_transform(4326) %>%   # convert CRS to wgs84 (from meter to degree) 
+  mutate(polygon_ID = seq.int(n()))
+  
+nrow(Sample_gaze_residential)
+#Sample_property_w_PV <- 
 
 
+```
+
+Number of gazetteer: 1621
+After combining the polygons with gazetteers, the number of polygons with points goes up to 1727
+
+```{r}
+nrow(Sample_property[Sample_gaze_residential,])
+
+```
+
+The next step is to find out gaze points that have more than one polygons
+
+The duplicates are found to be from the original polygon layers. 
+
+The function st_difference() is used to remove duplicated polygons. 
+
+```{r}
+
+Sample_property_dist <- Sample_property %>% 
+  st_difference() %>%    # duplicates from original layers are removed 
+  select(BID = polygon_ID) %>% 
+  st_join(Sample_gaze_residential, join = st_intersects) %>% 
+  group_by(BID) %>% 
+  #head()
+  summarise(Gaze_per_polygon = sum(!is.na(POSTCODE))) %>% 
+  filter(Gaze_per_polygon > 0) 
 
 
+Sample_gaze_residential %>%
+  mutate(Gaze_ID = seq.int(n())) %>% 
+  #head()
+  #filter(Gaze_ID == 1) %>% 
+  st_join(Sample_property_dist, join = st_intersects) %>% 
+  #head()
+  group_by(Gaze_ID) %>% 
+  summarise(Count_polygon = sum(!is.na(polygon_ID)))
+
+```
 
 
 
 ```{r}
-leaflet() %>% 
-  addTiles(options = providerTileOptions(maxZoom = 100)) %>% 
-  addMarkers(data = existingPV_soton, 
-#                   fillOpacity = 1, fillColor = "red", stroke = 1, color = "red", 
-                   popup = ~ADDRESS ) %>% 
-  addPolygons(data = bld_w_PV, 
-              color="black" , stroke = 1, opacity = 1, 
-              popup = ~as.character(BID)) %>% 
-  addPolygons(data = sra , fillOpacity = 0, 
-              color = "blue", stroke = 1 , popup = ~as.character(Id) ) %>% 
-  addPolygons(data = soton_bld)
-  addPolygons(data = bld_pv_gis , fillOpacity = 0, 
-              color = "green", stroke = 1 , popup = ~as.character(paste("<b>BID:</b> ", BID, "<br/>", 
-                                                                        "<b>NPV: </b>", NPV , "<br/>",
-                                                                        "<b>NGIS:</b>",NGIS , "<br/>" ) )) 
 
+Sample_property_sra <-  Sample_property_dist %>% 
+  st_join(Sample_sra, join = st_intersects) %>% 
+  #nrow()
+  filter(!is.na(OBJECTID)) %>% 
+  #head()
+  group_by(BID) %>% 
+  #head()
+  summarise( Count_sra = sum(!is.na(OBJECTID)) , Gaze_per_polygon  = Gaze_per_polygon [1] ) 
+  #nrow()
+  #arrange(desc(Count_sra)) %>% 
+  #summary()
+  #head()
+
+head(Sample_property_sra)
 ```
+
+
+```{r}
+
+Sample_grid_result <- Sample_grid_PV %>% 
+  #head() %>% 
+  st_join(Sample_property_sra , join = st_intersects) %>% 
+  #head()  
+  group_by(Grid_ID) %>% 
+  summarise(Count_PV = Count_PV[1] , Count_gaze = Count_gaze[1] , 
+            Count_est_PV = sum(!is.na(BID)), 
+            Count_sra = sum(Count_sra)) 
+
+head(Sample_grid_result, 10)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
