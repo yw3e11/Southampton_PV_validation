@@ -588,7 +588,7 @@ leaflet(data = Sample_grid_PV) %>%
 To count the number of model identified buildings (in fact, properties) in each area, the sra is firstly combined with building polygons (again, property polygons)
 
 ```{r}
-Sample_sra <- sf::st_read("./data/SRA_10_10_600.shp", quiet = T) %>% 
+sra_10_10_600 <- sf::st_read("./data/SRA_10_10_600.shp", quiet = T) %>% 
   st_set_crs(27700) %>% # The original shp doesn't have crs, so define it as OSGB (27700) 
   st_transform(4326)  # convert CRS to wgs84 (from meter to degree) 
 
@@ -644,7 +644,7 @@ Sample_gaze_residential %>%
 
 ```{r}
 
-Sample_property_sra <-  Sample_property_dist %>% 
+Sample_property_sra_10_10_600 <-  Sample_property_dist %>% 
   st_join(Sample_sra, join = st_intersects) %>% 
   #nrow()
   filter(!is.na(OBJECTID)) %>% 
@@ -657,22 +657,339 @@ Sample_property_sra <-  Sample_property_dist %>%
   #summary()
   #head()
 
-head(Sample_property_sra)
+head(Sample_grid_PV)
+```
+
+
+```{r}
+head(Sample_property_sra_10_10_600)
+head(sra_15_15_800_property)
+
+Sample_grid_result_10_10_600 <- Sample_grid_PV %>% 
+  #head() %>% 
+  st_join(Sample_property_sra_10_10_600 , join = st_intersects) %>% 
+  #head()  
+  group_by(Grid_ID) %>% 
+  summarise(Count_PV = Count_PV[1] , Count_gaze = Count_gaze[1] , 
+            Count_est_PV = sum(!is.na(BID)), 
+            Count_sra = sum(Count_sra)) %>% 
+  mutate(sra_percent = Count_est_PV / Count_gaze) %>% 
+  mutate(PV_uptake = Count_PV / Count_gaze) %>% 
+  arrange(sra_percent) 
+
+head(Sample_grid_result_10_10_600, 10)
+
+```
+
+
+
+```{r}
+Sample_grid_result_10_10_600 %>% 
+  ggplot()+ 
+    geom_point(aes(x = sra_percent, y = PV_uptake))
 ```
 
 
 ```{r}
 
-Sample_grid_result <- Sample_grid_PV %>% 
+Sample_grid_result_10_10_600 %>% 
+  leaflet(width = "80%") %>% 
+  addTiles() %>% 
+  addPolygons(weight = 0.5, color = "black", opacity = 1, 
+              fillOpacity = 1,
+              popup = ~paste("Actual PV installed:", as.character(Count_PV)), 
+              fillColor = ~colorBin("YlOrRd" , domain = NULL, bins = seq(0, 1, 0.2) )(sra_percent)) %>%
+  addLegend(position = "bottomright", 
+            title = "Estimated potential" ,
+            opacity = 1, 
+            pal = colorBin("YlOrRd" , domain = NULL, bins = seq(0, 1, 0.2) ) , 
+            values = ~sra_percent )
+
+```
+
+
+```{r}
+rsq <- function(x, y) cor(x, y)^2
+
+rsq(Sample_grid_result_10_10_600$sra_percent , Sample_grid_result$PV_uptake)
+```
+
+#1 Linear regression 
+
+```{r}
+model_ln <- lm(formula = PV_uptake ~ sra_percent, data = Sample_grid_result_10_10_600)
+
+summary(model_ln)
+
+```
+
+Plot below shows the linear fitting result, which has an R squared value of 0.2 
+
+A noticeable problem is the negative returns of estimated PV uptake, which should not be lower than zero. 
+
+```{r}
+predict_PV_uptake <- predict(model_ln, data.frame(sra_percent = seq(0,1,0.2)), se.fit = T) %>% 
+  as.data.frame() %>% 
+  select(est_PV_uptake = fit, se.fit) %>% 
+  mutate(sra_percent = seq(0,1,0.2)) 
+
+ggplot()+
+  geom_line(data = predict_PV_uptake, aes(x=sra_percent, y=est_PV_uptake)) +
+  geom_point(data = Sample_grid_result_10_10_600, aes(x=sra_percent, y = PV_uptake), colour = "red")+
+  geom_text(aes(x=0.9, y= 0.1, label = "R seq = 0.21"))+
+  labs(title = "Bassett included, R seq = 0.21")
+
+```
+
+Below attempting an non-linear regression, the linear regression is better trained by removing the outlier, Bassett which is the point in top right corner. 
+
+
+```{r}
+model_ln_2 <- Sample_grid_result_10_10_600 %>% 
+  filter(PV_uptake < 0.1) %>% 
+  lm(formula = PV_uptake ~ sra_percent)
+  #head(10)
+
+summary(model_ln_2)
+```
+
+
+```{r}
+predict(model_ln_2, data.frame(sra_percent = seq(0,1,0.2)), se.fit = T) %>% 
+  as.data.frame() %>% 
+  select(est_PV_uptake = fit, se.fit) %>% 
+  mutate(sra_percent = seq(0,1,0.2)) %>% 
+  ggplot()+
+    geom_line(aes(x=sra_percent, y=est_PV_uptake)) +
+    geom_point(data = Sample_grid_result, aes(x=sra_percent, y = PV_uptake), colour = "red")+
+    #geom_text(aes(x=0.9, y= 0.1, label = "R seq = 0.02"))+ 
+    labs(title = "Bassett excluded, R seq = 0.02")
+    
+```
+
+
+# Compare SRA 10-10-600 WITH SRA 10-10-800
+
+```{r}
+# Due to grid_sample IDs' mismatch problem, all SRA under 10-10-800 are imported to R
+# then to use the [sample_grid, ] to subset SRAs in sample grids
+
+sra_soton_10_10_800 <- sf::st_read("../GIS/Southampton/SRA_soton_15_15_800.shp", quiet = T) %>% 
+  st_set_crs(27700) %>% # The original shp doesn't have crs, so define it as OSGB (27700) 
+  st_transform(4326)  # convert CRS to wgs84 (from meter to degree) %>% 
+
+sra_10_10_800 <- sra_soton_10_10_800[Sample_property_dist , ]
+
+leaflet(width = "80%", height = "800") %>% 
+  addTiles(options = providerTileOptions(maxZoom = 100) ) %>% 
+  addPolygons(data = Sample_property_dist , color = "black", 
+              opacity = 1, weight = 1) %>% 
+  addPolygons(data = sra_10_10_600 , color = "red" , 
+              opacity = 1, weight = 1, fillOpacity = 1) %>% 
+  addPolygons(data = sra_15_15_800_property , color = "blue" ,
+              opacity = 1, weight = 1, fillOpacity = 1) %>% 
+  addCircleMarkers( data = existingPV_soton, 
+                    color = "yellow" , 
+                    radius = 2, opacity = 1, fillOpacity = 1)
+
+```
+
+The result of SRA_10_10_800 is not satisfactory, and the reason is found to be from STD_aspect and STD_slope. The next attempt is to try SRA_15_15_800 
+
+```{r}
+
+sra_soton_15_15_800 <- sf::st_read("../GIS/Southampton/SRA_soton_15_15_800.shp", quiet = T) %>% 
+  st_set_crs(27700) %>% # The original shp doesn't have crs, so define it as OSGB (27700) 
+  st_transform(4326)  # convert CRS to wgs84 (from meter to degree) %>% 
+
+sra_15_15_800_property <- sra_soton_15_15_800[Sample_property_dist , ] %>% 
+  mutate(BID = seq.int(n()))
+
+leaflet(width = "80%", height = "800") %>% 
+  addTiles(options = providerTileOptions(maxZoom = 100) ) %>% 
+  addPolygons(data = Sample_property_dist , color = "black", 
+              opacity = 1, weight = 1) %>% 
+  addPolygons(data = sra_10_10_600 , color = "red" , 
+              opacity = 1, weight = 1, fillOpacity = 1) %>% 
+  addPolygons(data = sra_15_15_800_property , color = "blue" ,
+              opacity = 1, weight = 1, fillOpacity = 1) %>% 
+  addCircleMarkers( data = existingPV_soton, 
+                    color = "yellow" , 
+                    radius = 2, opacity = 1, fillOpacity = 1)
+
+
+```
+
+To find out how many polygons that have existing pv but not picked up by the model, and why. 
+
+```{r}
+# Layer to use is Sample_property_dist (where "dist" means distinct after de-duplication)
+Sample_property_dist %>% 
+  .[existingPV_soton, ] %>% 
+  .[!lengths(st_intersects(., sra_15_15_800_property)), ] %>% 
+  #nrow()
+  leaflet(width = "70%") %>% 
+    addTiles() %>% 
+    #addProviderTiles(providers$Esri.WorldGrayCanvas) %>% 
+    addPolygons(color = "red", weight = 50, opacity = 0.5, fillOpacity = 1, fillColor = "black")
+
+```
+
+1. To aggregate results into sample grid
+2. find out proportion of buildings suitable for pv
+3. find out proportion of suitable building across whole city
+
+```{r}
+# grid: Sample_grid_PV
+head(Sample_grid_PV)
+
+Sample_property_dist[sra_soton_15_15_800, ] 
+
+Sample_grid_result_15_15_800 <- Sample_grid_PV %>% 
   #head() %>% 
-  st_join(Sample_property_sra , join = st_intersects) %>% 
+  st_join(Sample_property_dist[sra_soton_15_15_800, ]  , join = st_intersects) %>% 
   #head()  
   group_by(Grid_ID) %>% 
   summarise(Count_PV = Count_PV[1] , Count_gaze = Count_gaze[1] , 
-            Count_est_PV = sum(!is.na(BID)), 
-            Count_sra = sum(Count_sra)) 
+            Count_est_PV = sum(!is.na(BID))) %>% 
+  mutate(sra_p = Count_est_PV / Count_gaze) %>% 
+  mutate(PV_p = Count_PV / Count_gaze) %>% 
+  mutate(sra_percent = percent(Count_est_PV / Count_gaze)) %>% 
+  mutate(PV_percent = percent(Count_PV / Count_gaze)) %>% 
+  arrange(sra_percent) 
 
-head(Sample_grid_result, 10)
+head(Sample_grid_result_15_15_800, 10)
+```
+
+To show a map with actual PV count
+
+```{r}
+temp <- st_set_geometry(Sample_grid_result_15_15_800 , NULL)
+
+label_15_15_800 <- lapply(seq(10), function(i){
+  paste0("#",  temp[i, "Grid_ID"] , "</p>" ,
+         temp[i, "Count_PV"] , 
+         "(", temp[i, "PV_uptake"] , ")" 
+  )
+})
+
+
+Sample_grid_result_15_15_800[1, "Grid_ID"]
+label_15_15_800
+
+Sample_grid_result_15_15_800 %>% 
+  #head()
+  leaflet(width="500px",
+          options = leafletOptions(zoomControl = FALSE) ) %>% 
+  #addTiles(options = tileOptions(opacity = 1)) %>% 
+  addProviderTiles(providers$Esri.WorldGrayCanvas) %>% 
+  addPolygons(data = soton_border , color = "black" , weight = 1, 
+              label = "Southampton", 
+              labelOptions = labelOptions(noHide = T, 
+                                          textOnly = T, 
+                                          textsize = "14px", 
+                                          direction = "center"), 
+              fillColor = "blue" , fillOpacity = 0.0) %>% 
+  addPolygons(fillOpacity = 1, weight = 1, color = "black" ,
+              #label = lapply(label_15_15_800, HTML) ,
+              label = ~paste0("#", as.character(Grid_ID), ": ", 
+                              as.character(Count_PV) , 
+                              " (",as.character(PV_percent), ")", 
+                              sep = "") , 
+              labelOptions = labelOptions(noHide = T, 
+                                          textOnly = T, 
+                                          textsize = "10px", 
+                                          opacity = 1, 
+                                          offset = c(50,-12),
+                                          direction = "left" , 
+                                          style = list("color" = "black")),
+              fillColor = ~colorBin("YlOrRd", domain = NULL, bins = c(0, 1, 4, 10, 17))(Count_PV)) %>%
+  addLegend(position = "bottomleft", 
+            #title = "Number of PV</br>(proportion)" ,
+            #pal = colorBin("YlOrRd" , domain = NULL, bins = c(0, 1, 4, 10, 17) ) , 
+            #values = ~sra_percent, 
+            colors = c("#FFFFB2", "#FECC5C", "#FD8D3C", "#E31A1C") ,
+            labels = c("0" , "1 - 2" , "3 - 5" , ">10") ,
+            title = "Number</br> (proportion)",
+            opacity = 1 ) %>% 
+  addScaleBar() %>% 
+  mapshot(file ="./actual_pv_map.png")
+
+
+autoColour(c(0,1,2,3,4), c(0,1,2,3,4))
+```
+
+```{r}
+Sample_grid_result_15_15_800 %>% 
+  head(10) %>%
+  mutate(sra_rank = ntile(Count_est_PV, 4)) %>% 
+  arrange(sra_rank)
+  summary
+```
+
+bins to set up (n=4): <100, 100-125, 125-200, >200
+
+```{r}
+autoColour <- function(dataset = dataset, bins = bins){
+  colorBin(palette = "YlOrRd", domain = NULL, bins = bins , na.color = "#aaff56")(dataset)
+}
+autoColour(c(1,2,3,4), c(1,2,3,4))
+
+Sample_grid_result_15_15_800 %>%
+  mutate(sra_rank = percentile(sra_p)) %>% 
+  #head()
+  #mutate(sra_rank = ntile(sra_p, 3)) %>% 
+  #head(10) %>% 
+  #select(sra_p) %>% 
+  #mutate(sra_rank = percentile(sra_p)) %>% 
+  #mutate(color = autoColour(sra_rank ,bins = seq(0,100,100/3))) %>% 
+  #head(10)
+  leaflet(width="500px",
+          options = leafletOptions(zoomControl = FALSE) ) %>% 
+    #addTiles() %>% 
+    addProviderTiles(providers$Esri.WorldGrayCanvas) %>% 
+    addPolygons(data = soton_border , color = "black" , weight = 1, 
+              label = "Southampton", 
+              labelOptions = labelOptions(noHide = T, 
+                                          textOnly = T, 
+                                          textsize = "14px", 
+                                          direction = "center"), 
+              opacity = 0.3, 
+              fillColor = "blue" , fillOpacity = 0.0) %>% 
+    addPolygons(fillOpacity = 1, weight = 1, color = "grey", opacity = 1,
+                label = ~paste0("#", as.character(Grid_ID), ": ", 
+                              as.character(Count_est_PV) , 
+                              "(", as.character(sra_percent) ,")",
+                              sep = "") , 
+                labelOptions = labelOptions(noHide = T, 
+                                            textOnly = T, 
+                                            textsize = "10px", 
+                                            opacity = 1, 
+                                            offset = c(40,-12),
+                                            direction = "left" , 
+                                            style = list("color" = "black")),
+                fillColor = ~autoColour(Count_est_PV , bins = c(0,100,125,200,300))) %>% 
+    addLegend( position = "bottomleft", 
+               colors = c("#FFFFB2", "#FECC5C" ,"#FD8D3C", "#E31A1C"), 
+               labels = c("<100","100-125","125-200" , ">200") , 
+               title = "Number</br> (proportion)",
+               opacity = 1) %>% 
+    addScaleBar() %>% 
+    mapshot(file = "./est_pv_map.png")
+
+
+```
+
+
+
+```{r}
+Sample_grid_result_15_15_800 %>% 
+  head(10)
+```
+
+
+```{r}
+
 ```
 
 
@@ -700,12 +1017,90 @@ head(Sample_grid_result, 10)
 
 
 
+```{r}
+autoColour <- function(dataset = dataset, bins = bins){
+  colorBin(palette = "YlOrRd", domain = NULL, bins = bins , na.color = "#aaff56")(dataset)
+}
+
+unique(autoColour(seq(0:100), seq(0,100,100/3)))
+
+Sample_grid_result_15_15_800 %>%
+  mutate(sra_rank = percentile(sra_p)) %>% 
+  #head()
+  #mutate(sra_rank = ntile(sra_p, 3)) %>% 
+  #head(10) %>% 
+  #select(sra_p) %>% 
+  #mutate(sra_rank = percentile(sra_p)) %>% 
+  #mutate(color = autoColour(sra_rank ,bins = seq(0,100,100/3))) %>% 
+  #head(10)
+  leaflet() %>% 
+    #addTiles() %>% 
+    addProviderTiles(providers$Esri.WorldGrayCanvas) %>% 
+    addPolygons(data = soton_border , color = "black" , weight = 1, 
+              label = "Southampton", 
+              labelOptions = labelOptions(noHide = T, 
+                                          textOnly = T, 
+                                          textsize = "14px", 
+                                          direction = "center"), 
+              fillColor = "blue" , fillOpacity = 0.0) %>% 
+    addPolygons(fillOpacity = 1, weight = 1, color = "grey", opacity = 1,
+                label = ~paste0("#", as.character(Grid_ID), ": ", 
+                              as.character(sra_percent) , 
+                              sep = "") , 
+                labelOptions = labelOptions(noHide = T, 
+                                            textOnly = T, 
+                                            textsize = "10px", 
+                                            opacity = 1, 
+                                            offset = c(30,-12),
+                                            direction = "left" , 
+                                            style = list("color" = "black")),
+                fillColor = ~autoColour(sra_rank , bins = seq(0,100,100/3))) %>% 
+    addLegend( #title = "Estimated proportion of</br> properties suitable for PV",
+               position = "bottomright", 
+               colors = c("#FFEDA0", "#FEB24C", "#F03B20"), 
+               labels = c("0-70%","70-85%","85-100%") , 
+               opacity = 1) %>% 
+    addScaleBar()
 
 
+temp <- Sample_grid_result_15_15_800 %>% 
+  mutate(sra_rank = percentile(sra_p)) %>% 
+  head()
+  
+unique(autoColour(temp$sra_rank , bins = c(0, 33, 66, 100)) )
 
 
+```
 
 
+```{r}
+model_ln_15_15_800 <- Sample_grid_result_15_15_800 %>% 
+  #filter(PV_uptake < 0.1) %>% 
+  lm(formula = PV_uptake ~ sra_percent)
+  #head(10)
+
+summary(model_ln_15_15_800)
+
+
+predict_PV_uptake <- predict(model_ln_15_15_800, data.frame(sra_percent = seq(0,1,0.2)), se.fit = T) %>% 
+  as.data.frame() %>% 
+  select(est_PV_uptake = fit, se.fit) %>% 
+  mutate(sra_percent = seq(0,1,0.2)) 
+
+ggplot()+
+  geom_line(data = predict_PV_uptake, aes(x=sra_percent, y=est_PV_uptake)) +
+  geom_point(data = Sample_grid_result_15_15_800, 
+             aes(x=sra_percent, y = PV_uptake, 
+                 colour = factor(Count_PV) ) ) +
+  scale_colour_manual(values = rev(brewer.pal(7, "RdYlGn")))+
+  #scale_color_brewer(  palette = "RdYlGn")+
+  geom_text(aes(x=0.9, y= 0.1, label = "R seq = 0.189")) +
+  scale_y_continuous(limits = c(0,0.2))+
+  labs(title = "Bassett included, R seq = 0.189" , colour="Number of existing PV")
+
+head(Sample_grid_result_15_15_800, 10)
+
+```
 
 
 
