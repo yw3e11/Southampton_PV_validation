@@ -806,12 +806,13 @@ sra_15_15_800_property <- sra_soton_15_15_800[Sample_property_dist , ] %>%
   mutate(BID = seq.int(n()))
 
 leaflet(width = "80%", height = "800") %>% 
-  addTiles(options = providerTileOptions(maxZoom = 100) ) %>% 
+  #addTiles(options = providerTileOptions(maxZoom = 100) ) %>% 
+  addProviderTiles(providers$Esri.WorldImagery , options = providerTileOptions(maxZoom = 100)) %>% 
   addPolygons(data = Sample_property_dist , color = "black", 
               opacity = 1, weight = 1) %>% 
   addPolygons(data = sra_10_10_600 , color = "red" , 
               opacity = 1, weight = 1, fillOpacity = 1) %>% 
-  addPolygons(data = sra_15_15_800_property , color = "blue" ,
+  addPolygons(data = sra_15_15_800 , color = "blue" ,
               opacity = 1, weight = 1, fillOpacity = 1) %>% 
   addCircleMarkers( data = existingPV_soton, 
                     color = "yellow" , 
@@ -823,15 +824,20 @@ leaflet(width = "80%", height = "800") %>%
 To find out how many polygons that have existing pv but not picked up by the model, and why. 
 
 ```{r}
+install.packages("lwgeom ")
+sf::st_area(Sample_property_dist)
 # Layer to use is Sample_property_dist (where "dist" means distinct after de-duplication)
 Sample_property_dist %>% 
   .[existingPV_soton, ] %>% 
   .[!lengths(st_intersects(., sra_15_15_800_property)), ] %>% 
+  #st_length()
+  #head()
   #nrow()
   leaflet(width = "70%") %>% 
-    addTiles() %>% 
+    addTiles(options =  tileOptions(maxZoom = 100)) %>% 
+    #addProviderTiles(providers$Esri.WorldImagery , options = tileOptions(maxZoom = 100)) %>% 
     #addProviderTiles(providers$Esri.WorldGrayCanvas) %>% 
-    addPolygons(color = "red", weight = 50, opacity = 0.5, fillOpacity = 1, fillColor = "black")
+    addPolygons(color = "red", weight = 10, opacity = 1, fillOpacity = 0, fillColor = "black")
 
 ```
 
@@ -861,6 +867,19 @@ Sample_grid_result_15_15_800 <- Sample_grid_PV %>%
 head(Sample_grid_result_15_15_800, 10)
 ```
 
+```{r}
+Sample_grid_result_15_15_800 <- Sample_grid_result_15_15_800 %>% 
+  arrange(Grid_ID) %>% 
+  mutate(Count_PV = c(13,1,4,0,4,2,0,16,0,2)) %>% 
+  mutate(PV_p = Count_PV / Count_gaze , 
+         PV_percent = percent(PV_p)) 
+
+
+```
+
+
+
+
 To show a map with actual PV count
 
 ```{r}
@@ -877,13 +896,15 @@ label_15_15_800 <- lapply(seq(10), function(i){
 Sample_grid_result_15_15_800[1, "Grid_ID"]
 label_15_15_800
 
+
+
 Sample_grid_result_15_15_800 %>% 
   #head()
   leaflet(width="500px",
           options = leafletOptions(zoomControl = FALSE) ) %>% 
   #addTiles(options = tileOptions(opacity = 1)) %>% 
   addProviderTiles(providers$Esri.WorldGrayCanvas) %>% 
-  addPolygons(data = soton_border , color = "black" , weight = 1, 
+  addPolygons(data = soton_border , color = "black" , weight = 0.5, 
               label = "Southampton", 
               labelOptions = labelOptions(noHide = T, 
                                           textOnly = T, 
@@ -900,7 +921,7 @@ Sample_grid_result_15_15_800 %>%
                                           textOnly = T, 
                                           textsize = "10px", 
                                           opacity = 1, 
-                                          offset = c(50,-12),
+                                          offset = c(40,-12),
                                           direction = "left" , 
                                           style = list("color" = "black")),
               fillColor = ~colorBin("YlOrRd", domain = NULL, bins = c(0, 1, 4, 10, 17))(Count_PV)) %>%
@@ -912,8 +933,9 @@ Sample_grid_result_15_15_800 %>%
             labels = c("0" , "1 - 2" , "3 - 5" , ">10") ,
             title = "Number</br> (proportion)",
             opacity = 1 ) %>% 
-  addScaleBar() %>% 
-  mapshot(file ="./actual_pv_map.png")
+  addScaleBar() #%>%
+
+#  mapshot(file ="./actual_pv_map.png")
 
 
 autoColour(c(0,1,2,3,4), c(0,1,2,3,4))
@@ -927,7 +949,13 @@ Sample_grid_result_15_15_800 %>%
   summary
 ```
 
-bins to set up (n=4): <100, 100-125, 125-200, >200
+```{r}
+Sample_grid_result_15_15_800 %>% 
+  summary()
+```
+
+bins to set up for est_PV (n=4): <100, 100-125, 125-200, >200
+bins for sra_p (n=4): 30%, 60-70%, 70-90% , >90%
 
 ```{r}
 autoColour <- function(dataset = dataset, bins = bins){
@@ -958,8 +986,8 @@ Sample_grid_result_15_15_800 %>%
               fillColor = "blue" , fillOpacity = 0.0) %>% 
     addPolygons(fillOpacity = 1, weight = 1, color = "grey", opacity = 1,
                 label = ~paste0("#", as.character(Grid_ID), ": ", 
-                              as.character(Count_est_PV) , 
-                              "(", as.character(sra_percent) ,")",
+                              as.character(sra_percent) , 
+                              "(", as.character(Count_est_PV) ,")",
                               sep = "") , 
                 labelOptions = labelOptions(noHide = T, 
                                             textOnly = T, 
@@ -968,14 +996,13 @@ Sample_grid_result_15_15_800 %>%
                                             offset = c(40,-12),
                                             direction = "left" , 
                                             style = list("color" = "black")),
-                fillColor = ~autoColour(Count_est_PV , bins = c(0,100,125,200,300))) %>% 
+                fillColor = ~autoColour(sra_p , bins = c(0,0.3,0.7,0.9,1))) %>% 
     addLegend( position = "bottomleft", 
                colors = c("#FFFFB2", "#FECC5C" ,"#FD8D3C", "#E31A1C"), 
-               labels = c("<100","100-125","125-200" , ">200") , 
-               title = "Number</br> (proportion)",
+               labels = c("<30%","60-70%","70-90%" , ">90%") , 
+               title = "Propertion</br> (number)",
                opacity = 1) %>% 
-    addScaleBar() %>% 
-    mapshot(file = "./est_pv_map.png")
+    addScaleBar() 
 
 
 ```
@@ -1101,6 +1128,137 @@ ggplot()+
 head(Sample_grid_result_15_15_800, 10)
 
 ```
+
+
+
+```{r}
+
+st_intersects(Sample_property_dist, existingPV_soton) %>% 
+  lengths()
+
+lengths(Sample_property_dist)
+
+
+existingPV_soton %>% 
+  head()
+```
+
+
+```{r}
+existingPV_soton %>% 
+  st_join(Sample_property_dist, join=st_intersects) %>% 
+  filter(is.na(BID)) %>% 
+  head()
+  leaflet() %>%  
+    addTiles() %>% 
+    addCircleMarkers()
+  #head()
+  nrow()
+```
+
+2 existing PV systems will need to be removed due to (1) it's outside any building polygon as the building sits on the border of the area - Land Adj To 35, and (2) it's found to be a duplica to another PV point in the same polygon - 45A SO19 5LQ. 
+
+```{r}
+
+polygon_error <- Sample_property_dist %>% 
+  #nrow()
+  st_join(existingPV_soton, join=st_intersects) %>%  
+  group_by(BID) %>%  
+  #head()
+  summarise(countPV = sum(!is.na(ADDRESS0))) %>% 
+  filter(countPV>1) 
+  
+existingPV_soton %>% 
+  .[polygon_error, ] %>% 
+  head()
+  leaflet(options = providerTileOptions(maxZoom = 100) ) %>% 
+    addTiles() %>% 
+    addCircleMarkers()
+    #addPolygons(color = "red", weight = 100) %>% 
+    #addCircleMarkers(data=existingPV_soton , radius = 1)
+  
+
+existingPV_soton_n <-  existingPV_soton %>% 
+  filter(!(NAMEPRI == "45A" & POSTCODE =="SO19 5LQ") & NAMEPRI != "Land Adj To 35") 
+
+```
+
+The model validation is to (1) see how many of the existing PV are correctly detected; (2) where are they based; (3) error analysis; (4) see if I can do a negative detection - to separate buildings into "good" and "bad" groups. 
+
+## 1. aggregate the number of pv and number of correct matches into areas 
+
+```{r}
+
+Sample_property_results <- Sample_property_dist %>% 
+  .[existingPV_soton_n, ] %>% 
+  #head()
+  st_join(sra_15_15_800, join=st_intersects) %>% 
+  #head()
+  group_by(BID) %>% 
+  summarise(count_model = sum(!is.na(Id)), Gaze_per_polygon = Gaze_per_polygon [1]) 
+
+Sample_grid %>%  
+  st_join(Sample_property_results, join = st_intersects) %>%  
+  group_by(Grid_ID) %>% 
+  summarise(Property_n = Count_property[1], 
+            Model_n = sum(count_model>0), 
+            PV_n = sum(!is.na(Gaze_per_polygon)) ) %>% 
+  head(10) %>% 
+  write.csv("./grid_summary.csv")
+```
+
+
+```{r}
+DT <- data.table(A=1:10, B=c(0.01, 0.04, 0.06, 0.09, 0.1, 0.13, 0.14, 0.15, 0.17, 0.71)) 
+
+DT %>% 
+  group_by(gr = cut(B, breaks = seq(0, 1, by=0.1))) %>% 
+  head(10)
+```
+
+
+```{r}
+myFun <- function(n = 5000) {
+  a <- do.call(paste0, replicate(5, sample(LETTERS, n, TRUE), FALSE))
+  paste0(a, sprintf("%04d", sample(9999, n, TRUE)), sample(LETTERS, n, TRUE))
+}
+
+set.seed(5013)
+myFun(14) %>% 
+  as.data.frame() %>% 
+  setnames("d") %>% 
+  mutate(No = seq.int(n()) , Password = d)
+```
+
+Compare radiation on two buildings in Bassett. The difference is caused by shading
+
+```{r}
+bassett_dir <- "./data/"
+bassett_sample_list <- intersect(list.files(bassett_dir, pattern = "Month"), list.files(bassett_dir, pattern =".dbf"))
+install.packages("foreign")
+
+
+read.dbf(bassett_sample_list[1])
+for (file in bassett_sample_list){
+  
+  
+}
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
