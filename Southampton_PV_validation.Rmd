@@ -1234,35 +1234,221 @@ Compare radiation on two buildings in Bassett. The difference is caused by shadi
 
 ```{r}
 bassett_dir <- "./data/"
-bassett_sample_list <- intersect(list.files(bassett_dir, pattern = "Month"), list.files(bassett_dir, pattern =".dbf"))
-install.packages("foreign")
+bassett_sample_list <- intersect(list.files(bassett_dir, pattern = "Month" , full.names = T ), list.files(bassett_dir, pattern =".dbf", full.names = T))
 
-
-read.dbf(bassett_sample_list[1])
-for (file in bassett_sample_list){
+dbf_bind <- function(x){
+  temp <- read.dbf(x) %>% 
+    mutate(name = x) %>% 
+    #mutate(name = substr(name, 15, 25))
+    mutate(name = gsub("./data//Zonal_", "", name)) %>% 
+    mutate(name = gsub(".dbf", "", name)) %>% 
+    dplyr::select(Month = name, Sample = OBJECTID_1, MIN, MAX, MEAN, STD) %>% 
+    mutate(Month = gsub("Month", "", Month)) %>% 
+    mutate(Month = as.numeric(Month)) %>% 
+    mutate(date = paste("2018", Month ,"1", sep = "-" )) %>% 
+    mutate(date = as.Date(date)) %>% 
+    mutate(Month = month.abb[Month]) %>% 
+    mutate(Sample = gsub(1, "Building_1", Sample)) %>% 
+    mutate(Sample = gsub(2, "Building_2", Sample))  %>% 
+    mutate(Mean = as.integer(MEAN))
   
   
+  return(temp)
 }
+
+bassett_rad <- lapply(bassett_sample_list , dbf_bind) %>% 
+  bind_rows()
+
+
+head(bassett_rad)
+
+ggplot(bassett_rad)+
+  geom_point(aes(x=date, y=Mean, group=Sample, colour = Sample))+
+  geom_line(aes(x=date , y=Mean , group = Sample, colour = Sample))+ 
+  scale_x_date(date_breaks = "1 month" , date_labels = "%b")+
+  #scale_x_continuous(breaks = seq(1,12,1))+
+  scale_y_continuous(breaks = seq(0,150000,25000), labels = comma)+ 
+  labs(y = bquote("Mean monthly irradiance,"~Wh/m^2/month) , 
+       x = "")+ 
+  theme(legend.position = c(0.85,0.88))
 
 ```
 
 
 
+```{r}
+bassett_rad %>% 
+  group_by(Sample) %>% 
+  summarise(Sum = sum(Mean)) %>% 
+  mutate(Percent = ( 884483-Sum)/884483) %>% 
+  head()
+```
+
+
+```{r}
+bassett_shp <- sf::st_read("./data/Bassett_samples.shp") %>% 
+  st_set_crs(27700) %>% # The original shp doesn't have crs, so define it as OSGB (27700)    
+  st_transform(4326)  # convert CRS to wgs84 (from meter to degree) 
+  
+
+leaflet() %>% 
+  #addTiles() %>% 
+  addProviderTiles(providers$Esri.WorldImagery) %>% 
+  addPolygons(data = bassett_shp)
+
+```
+
+
+# Curvature vs STD 
+
+The curvature function in Arcgis is tested and returns positive results. 
+
+```{r}
+sra_cvt_10_800 <- sf::st_read("./data/SRA_sampleArea_curvature_10_800.shp") %>% 
+  st_set_crs(27700) %>% # The original shp doesn't have crs, so define it as OSGB (27700)    
+  st_transform(4326) %>%   # convert CRS to wgs84 (from meter to degree) 
+  st_difference %>% 
+  dplyr::select(Toid, sra = SUM ,  area = Shape_Area)
+
+sra_cvt_10_800 %>%
+  #head()
+  filter(sra > 10) %>% 
+  #nrow()
+  leaflet() %>% 
+    addTiles() %>% 
+    addPolygons(color = "blue" , opacity = 1 , weight = 1) %>% 
+    addCircleMarkers(data = existingPV_soton, color = "red", radius = 1)
+
+```
+
+```{r}
+sra_cvt_10_800 %>% 
+  #filter(sra >10) %>% 
+  #.[! lengths(st_intersects(., existingPV_soton)), ] %>% 
+  .[existingPV_soton, ] %>% 
+  #arrange(desc(sra)) %>% 
+  arrange(sra) %>% 
+  mutate(kWp = sra*1.4 *0.15) 
+
+```
+
+
+```{r}
+sra_cvt_10_800 %>% 
+  #filter(sra >10) %>% 
+  #.[! lengths(st_intersects(., existingPV_soton)), ] %>% 
+  .[existingPV_soton, ] %>% 
+  arrange(desc(sra)) %>% 
+  mutate(kWp = sra*1.4 *0.15) %>% 
+  group_by(kW_range = cut(kWp, breaks= seq(0,12,1)) ) %>% 
+  summarise(Count = n()) %>% 
+  #head()
+  ggplot()+
+    geom_bar(aes(x=kW_range, y=Count), stat = "identity")+
+    geom_text(aes(x=kW_range, y=Count, label=Count) , vjust = -0.5 ) + 
+    labs(x = "kWp" , y = "Observations")
+  
+```
+
+```{r}
+  
+sra_cvt_10_800 %>% 
+  #filter(sra >10) %>% 
+  #.[! lengths(st_intersects(., existingPV_soton)), ] %>% 
+  .[existingPV_soton, ] %>% 
+  arrange(desc(sra)) %>% 
+  mutate(kWp = sra*1.4 *0.15) %>% 
+  leaflet(width = "70%") %>% 
+    addTiles(options =  tileOptions(maxZoom = 100)) %>% 
+    #addProviderTiles(providers$Esri.WorldImagery , options = tileOptions(maxZoom = 100)) %>% 
+    #addProviderTiles(providers$Esri.WorldGrayCanvas) %>% 
+    addPolygons(popup = ~as.character(kWp),
+                color = "black", weight = 1, opacity = 1, fillOpacity = 1, 
+                fillColor = ~autoColour(kWp , bins = seq(0, 10, 2))) %>% 
+    addCircleMarkers(data = existingPV_soton, color = "red", radius = 1)
+
+
+```
 
 
 
+```{r}
+kw_properties_southampton <- read.dbf(file = "./data/kW_properties_Southampton.dbf")
+
+n_pv_property = nrow(kw_properties_southampton)
 
 
+kw_properties_southampton %>% 
+  filter(kW <=4) %>% 
+  nrow()/n_pv_property
+  mutate(kW_range = cut(kW, breaks = c(0,1,2,4,10,20,50))) %>% 
+  group_by(kW_range) %>% 
+  summarise(Count = n()) %>% 
+  mutate(Frequency = percent(Count / n_pv_property)) %>% 
+  #head()
+  ggplot()+
+    geom_bar(aes(x=kW_range, y=Count), stat = "identity") +
+    geom_text(aes(x=kW_range, y= Count , label = Frequency), vjust = -0.5)+
+    scale_y_continuous(limits = c(0,30000))+
+    #coord_flip()+
+    labs(x="Capacity of Solar PV system, kWp" , 
+         y="Frequency", 
+         title = paste("n= ",  n_pv_property))
+
+```
 
 
+```{r}
+
+sheet_name <- readxl::excel_sheets("./2019_rpi_adjusted_tariff_table_publication.xlsx")
+
+sheet_name <- sheet_name[-c(1,2,12)]
+
+sheet_name
+
+readsheet <- function(x){
+  temp <- readxl::read_xlsx("./2019_rpi_adjusted_tariff_table_publication.xlsx", sheet = x, col_names = T)
+  return(temp)
+}
+
+tariff <- lapply(sheet_name , readsheet) %>% 
+  bind_rows()
+
+tariff %>%
+  distinct(`Energy Efficiency Requirement rating`) %>% 
+  head()
+  filter(`Technology Type` == "Photovoltaic") %>% 
+  distinct(`Maximum Capacity (kW)`) %>% 
+  #distinct(`Technology Type`) %>% 
+  #distinct(`Solar PV Installation  Type`) %>% 
+  head(10)
+  
+
+```
+
+```{r}
+tariff %>% 
+  dplyr::select(Type = `Technology Type` , 
+                Requirement = `Energy Efficiency Requirement rating` ,
+                Installation = `Solar PV Installation  Type`, Tariff, 
+                Min = `Minimum Capacity (kW)` , Max = `Maximum Capacity (kW)` , Start = `Tariff Start Date` )%>% 
+  filter(Type == "Photovoltaic") %>% 
+  filter(Requirement == "Higher" | is.na(Requirement)) %>% 
+  filter(Installation %in% c("Standard" , "New Build")) %>% 
+  #distinct(Max)
+  #filter(Max == 4)
+  filter(Max %in% c(4, 10)) %>% 
+  mutate(Range = ifelse(Max ==4, "0 - 4", "4 - 10")) %>% 
+  #arrange(desc(Start))
+  #head()
+  ggplot()+
+    #facet_wrap(~Installation)+
+    geom_line(aes(x=Start, y=Tariff ,  group = Range , color = as.factor(Range) ))+
+    geom_point(aes(x=Start, y=Tariff ,  group = Range , color = as.factor(Range) )) +
+    labs(color = "kW", x= "", y="Tariff, £0.01")
 
 
-
-
-
-
-
-
+```
 
 
 
