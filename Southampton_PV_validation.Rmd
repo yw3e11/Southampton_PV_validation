@@ -128,8 +128,8 @@ soton_grid <- uk_grid[soton_border,]
 raster_base <- raster::raster(as(soton_grid, "Spatial")) %>% 
   disaggregate(fact = 4) # resize by a factor of 4
 
-ncell(raster_base)
-nrow(raster_base)
+#ncell(raster_base)
+#nrow(raster_base)
 
 # Then overlay any shp with base raster layer, and extract values
 # in this case, the fraction of coverage is extracted using 'getCover' 
@@ -429,8 +429,8 @@ soton_grid_residential_only <- soton_grid_residential%>%
 
   
 soton_grid_residential_only %>% 
-  leaflet(width = "80%") %>% 
-  addTiles(options = providerTileOptions(maxZoom = 12,minZoom= 12)) %>% 
+  leaflet(width = "80%", height = "600px") %>% 
+  addTiles(options = providerTileOptions(maxZoom = 12.5, minZoom= 12)) %>% 
   addPolygons(data =  soton_border , weight = 2,
               fillOpacity = 0) %>% 
   addPolygons(fillColor = ~pal_property_density(Count), 
@@ -688,8 +688,8 @@ soton_residential_bld <- soton_bld %>%
             STREETNAME = head(STREETNAME ,1) , 
             TYPE =head(TYPE ,1) ) 
 
-head(gaze_residential)
-head(soton_residential_bld2)
+#head(gaze_residential)
+#head(soton_residential_bld2)
 # 
 summary(soton_residential_bld$Properties_per_bld)
 
@@ -898,8 +898,73 @@ leaflet() %>%
 ```
 
 
+```{r}
+temp <- read.dbf(file = "./kW_houses_sra.dbf")
+
+temp %>% 
+  filter(kW < 20) %>% 
+  #summary()
+  ggplot()+
+    geom_histogram(aes(x=kW))
 
 
+```
+
+
+```{r}
+temp <- read.csv("./sra_kw_result_srf_loop.csv", sep = ",", header = T, stringsAsFactors = F)
+
+assign_bid <- temp %>% 
+  distinct(Toid) %>% 
+  mutate(BID = paste("BID",rownames(.), sep="_")) 
+
+assign_bid
+
+temp %>% 
+  left_join(assign_bid, by = "Toid") %>% 
+  dplyr::select( -OBJECTID.. , -Toid , -Shape.., -Shape_Length, -Shape_Area) %>% 
+  gather(Parameter, Result, -BID) %>% 
+  mutate(Result = as.numeric(Result)) %>% 
+  separate(Parameter, sep="_", into = c("Category", "Curvature", "Radiation" , "focalSum")) %>% 
+  #distinct(Category)
+  #head()
+  mutate(Curvature = substring(Curvature, 2)) %>% 
+  mutate(Radiation = substring(Radiation, 2)) %>% 
+  mutate(focalSum = substring(focalSum, 2)) %>% 
+  mutate(Curvature = as.integer(Curvature)) %>% 
+  mutate(Radiation = as.integer(Radiation)) %>% 
+  mutate(focalSum = as.integer(focalSum)) %>% 
+  #distinct(Curvature)
+  #gather(P, Result, -BID, -Category) %>% 
+  #head()
+  #gather(Parameter, Value, -BID, -Category, -Result) %>% 
+  #head()
+  #filter(BID == "BID_1" & Category == "kW" ) %>% 
+  mutate(Result = ifelse(is.na(Result), 0, Result)) %>% 
+  filter(Category == "kW") %>%  
+  group_by(Curvature, Radiation, focalSum) %>% 
+  summarise(Results = sum(Result)) %>% 
+  #head()
+  plot_ly(x=~Curvature, y=~focalSum, z=~Results, color=~as.factor(Radiation)) 
+
+
+
+  #nrow()
+  #head()
+  #ggplot()+
+  #  facet_wrap(~Radiation)+
+  #  #geom_line(aes(Curvature, Result, group=focalSum, color = as.factor(focalSum)))
+  #  geom_contour(aes(Curvature, focalSum, z=Result, color=as.factor(focalSum)))
+  #head()
+  #head()
+  
+  #ggplot()+
+    #group_by(Parameter)+
+    #facet_grid(~focalSum)+
+    #geom_line(aes(x=Value, y=Result, group=Parameter , color = Parameter))
+    #geom_contour(aes(Curvature, Radiation, z= Result))
+
+```
 
 
 
