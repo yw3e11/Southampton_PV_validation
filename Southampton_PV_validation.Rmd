@@ -912,18 +912,23 @@ temp %>%
 
 
 ```{r}
-temp <- read.csv("./sra_kw_result_srf_loop.csv", sep = ",", header = T, stringsAsFactors = F)
+temp <- read.csv("./sra_kw_result_srf_loop_2.csv", sep = ",", header = T, stringsAsFactors = F)
 
 assign_bid <- temp %>% 
-  distinct(Toid) %>% 
+#temp %>% 
+  #head()
+  distinct(ADDRESS0) %>% 
   mutate(BID = paste("BID",rownames(.), sep="_")) 
 
 assign_bid
 
 temp %>% 
-  left_join(assign_bid, by = "Toid") %>% 
-  dplyr::select( -OBJECTID.. , -Toid , -Shape.., -Shape_Length, -Shape_Area) %>% 
-  gather(Parameter, Result, -BID) %>% 
+  left_join(assign_bid, by = "ADDRESS0") %>% 
+  dplyr::select(-OBJECTID_12.., -Toid ,  - ADDRESS0, -UPRN, -Panel.no, -Distance ) %>% 
+  #names()
+  gather(Parameter, Result, -BID, -kW) %>% 
+  mutate(Result = ifelse(Result == "<Null>", "0", Result)) %>% 
+  #head()
   mutate(Result = as.numeric(Result)) %>% 
   separate(Parameter, sep="_", into = c("Category", "Curvature", "Radiation" , "focalSum")) %>% 
   #distinct(Category)
@@ -934,35 +939,24 @@ temp %>%
   mutate(Curvature = as.integer(Curvature)) %>% 
   mutate(Radiation = as.integer(Radiation)) %>% 
   mutate(focalSum = as.integer(focalSum)) %>% 
+  mutate(Error = Result - kW) %>% 
   #distinct(Curvature)
   #gather(P, Result, -BID, -Category) %>% 
   #head()
   #gather(Parameter, Value, -BID, -Category, -Result) %>% 
   #head()
   #filter(BID == "BID_1" & Category == "kW" ) %>% 
-  mutate(Result = ifelse(is.na(Result), 0, Result)) %>% 
+  #mutate(Result = ifelse(is.na(Result), 0, Result)) %>% 
+  #head()
   filter(Category == "kW") %>%  
-  group_by(Curvature, Radiation, focalSum) %>% 
-  summarise(Results = sum(Result)) %>% 
+  filter(BID == "BID_1") %>% 
   #head()
-  plot_ly(x=~Curvature, y=~focalSum, z=~Results, color=~as.factor(Radiation)) 
+  #group_by(Curvature, Radiation, focalSum) %>% 
+  #summarise(Results = sum(Result)) %>% 
+  #head()
+  plot_ly(x=~Curvature, y=~focalSum, z=~Error, color=~as.factor(Radiation)) 
 
-
-
-  #nrow()
-  #head()
-  #ggplot()+
-  #  facet_wrap(~Radiation)+
-  #  #geom_line(aes(Curvature, Result, group=focalSum, color = as.factor(focalSum)))
-  #  geom_contour(aes(Curvature, focalSum, z=Result, color=as.factor(focalSum)))
-  #head()
-  #head()
   
-  #ggplot()+
-    #group_by(Parameter)+
-    #facet_grid(~focalSum)+
-    #geom_line(aes(x=Value, y=Result, group=Parameter , color = Parameter))
-    #geom_contour(aes(Curvature, Radiation, z= Result))
 
 ```
 
