@@ -939,7 +939,7 @@ temp %>%
   mutate(Curvature = as.integer(Curvature)) %>% 
   mutate(Radiation = as.integer(Radiation)) %>% 
   mutate(focalSum = as.integer(focalSum)) %>% 
-  mutate(Error = Result - kW) %>% 
+  mutate(Error = (Result - kW)/kW) %>% 
   #distinct(Curvature)
   #gather(P, Result, -BID, -Category) %>% 
   #head()
@@ -949,12 +949,13 @@ temp %>%
   #mutate(Result = ifelse(is.na(Result), 0, Result)) %>% 
   #head()
   filter(Category == "kW") %>%  
-  filter(BID == "BID_1") %>% 
+  #filter(BID == "BID_1") %>% 
   #head()
-  #group_by(Curvature, Radiation, focalSum) %>% 
-  #summarise(Results = sum(Result)) %>% 
+  group_by(Curvature, Radiation, focalSum) %>% 
+  summarise(Error = mean(Error)) %>% 
   #head()
-  plot_ly(x=~Curvature, y=~focalSum, z=~Error, color=~as.factor(Radiation)) 
+  plot_ly(x=~Curvature, y=~focalSum, z=~Error, color=~as.factor(Radiation)) %>% 
+  layout(title = "Model error at different input values")
 
   
 
@@ -962,11 +963,142 @@ temp %>%
 
 
 
+```{r}
+temp %>% 
+  left_join(assign_bid, by = "ADDRESS0") %>% 
+  dplyr::select(-OBJECTID_12.., -Toid ,  - ADDRESS0, -UPRN, -Panel.no, -Distance ) %>% 
+  #names()
+  gather(Parameter, Result, -BID, -kW) %>% 
+  mutate(Result = ifelse(Result == "<Null>", "0", Result)) %>% 
+  #head()
+  mutate(Result = as.numeric(Result)) %>% 
+  separate(Parameter, sep="_", into = c("Category", "Curvature", "Radiation" , "focalSum")) %>% 
+  #distinct(Category)
+  #head()
+  mutate(Curvature = substring(Curvature, 2)) %>% 
+  mutate(Radiation = substring(Radiation, 2)) %>% 
+  mutate(focalSum = substring(focalSum, 2)) %>% 
+  mutate(Curvature = as.integer(Curvature)) %>% 
+  mutate(Radiation = as.integer(Radiation)) %>% 
+  mutate(focalSum = as.integer(focalSum)) %>% 
+  mutate(Error = (Result - kW)/kW) %>% 
+  #distinct(Curvature)
+  #gather(P, Result, -BID, -Category) %>% 
+  #head()
+  #gather(Parameter, Value, -BID, -Category, -Result) %>% 
+  #head()
+  #filter(BID == "BID_1" & Category == "kW" ) %>% 
+  #mutate(Result = ifelse(is.na(Result), 0, Result)) %>% 
+  #head()
+  filter(Category == "kW") %>%  
+  #filter(BID == "BID_1") %>% 
+  #head()
+  group_by(Curvature, Radiation, focalSum) %>% 
+  summarise(Error = mean(Error)) %>% 
+  ungroup() %>% 
+  mutate(Error.bin = cut(Error, breaks = seq(-1, 1, 0.2))) %>% 
+  #arrange(desc(Error))
+  #head()
+  ggplot(aes(x=Radiation, y = focalSum, fill = Error.bin ))+
+    facet_wrap(~Curvature)+
+    geom_tile(color = "black")+
+    scale_fill_brewer(palette = "PRGn") +
+    labs(title = "Errors at different Curvature Thresholds")
+
+    
+  
+  
+```
 
 
+```{r}
+temp %>% 
+  left_join(assign_bid, by = "ADDRESS0") %>% 
+  dplyr::select(-OBJECTID_12.., -Toid ,  - ADDRESS0, -UPRN, -Panel.no, -Distance ) %>% 
+  #names()
+  gather(Parameter, Result, -BID, -kW) %>% 
+  mutate(Result = ifelse(Result == "<Null>", "0", Result)) %>% 
+  #head()
+  mutate(Result = as.numeric(Result)) %>% 
+  separate(Parameter, sep="_", into = c("Category", "Curvature", "Radiation" , "focalSum")) %>% 
+  #distinct(Category)
+  #head()
+  mutate(Curvature = substring(Curvature, 2)) %>% 
+  mutate(Radiation = substring(Radiation, 2)) %>% 
+  mutate(focalSum = substring(focalSum, 2)) %>% 
+  mutate(Curvature = as.integer(Curvature)) %>% 
+  mutate(Radiation = as.integer(Radiation)) %>% 
+  mutate(focalSum = as.integer(focalSum)) %>% 
+  mutate(Error = (Result - kW)/kW) %>%  # positive - overestimate; negative - underestimate
+  #distinct(Curvature)
+  #gather(P, Result, -BID, -Category) %>% 
+  #head()
+  #gather(Parameter, Value, -BID, -Category, -Result) %>% 
+  #head()
+  #filter(BID == "BID_1" & Category == "kW" ) %>% 
+  #mutate(Result = ifelse(is.na(Result), 0, Result)) %>% 
+  #head()
+  filter(Category == "kW") %>%  
+  #filter(BID == "BID_1") %>% 
+  #head()
+  group_by(Curvature, Radiation, focalSum) %>% 
+  summarise(Error = mean(Error)) %>% 
+  ungroup() %>% 
+  mutate(Error.bin = cut(Error, breaks = seq(-1, 1, 0.2))) %>% 
+  #arrange(desc(Error))
+  #head()
+  ggplot(aes(x=Radiation, y = Curvature, fill = Error.bin ))+
+    facet_wrap(~focalSum)+
+    geom_tile()+
+    scale_fill_brewer(palette = "PRGn") + 
+    labs(title = "Errors at different focalSum Thresholds")
+
+```
 
 
+```{r}
+temp %>% 
+  left_join(assign_bid, by = "ADDRESS0") %>% 
+  dplyr::select(-OBJECTID_12.., -Toid ,  - ADDRESS0, -UPRN, -Panel.no, -Distance ) %>% 
+  #names()
+  gather(Parameter, Result, -BID, -kW) %>% 
+  mutate(Result = ifelse(Result == "<Null>", "0", Result)) %>% 
+  #head()
+  mutate(Result = as.numeric(Result)) %>% 
+  separate(Parameter, sep="_", into = c("Category", "Curvature", "Radiation" , "focalSum")) %>% 
+  #distinct(Category)
+  #head()
+  mutate(Curvature = substring(Curvature, 2)) %>% 
+  mutate(Radiation = substring(Radiation, 2)) %>% 
+  mutate(focalSum = substring(focalSum, 2)) %>% 
+  mutate(Curvature = as.integer(Curvature)) %>% 
+  mutate(Radiation = as.integer(Radiation)) %>% 
+  mutate(focalSum = as.integer(focalSum)) %>% 
+  mutate(Error = (Result - kW)/kW) %>%  # positive - overestimate; negative - underestimate
+  #distinct(Curvature)
+  #gather(P, Result, -BID, -Category) %>% 
+  #head()
+  #gather(Parameter, Value, -BID, -Category, -Result) %>% 
+  #head()
+  #filter(BID == "BID_1" & Category == "kW" ) %>% 
+  #mutate(Result = ifelse(is.na(Result), 0, Result)) %>% 
+  #head()
+  filter(Category == "kW") %>%  
+  #filter(BID == "BID_1") %>% 
+  #head()
+  group_by(Curvature, Radiation, focalSum) %>% 
+  summarise(Error = mean(Error)) %>% 
+  ungroup() %>% 
+  mutate(Error.bin = cut(Error, breaks = seq(-1, 1, 0.2))) %>% 
+  #arrange(desc(Error))
+  #head()
+  ggplot(aes(x=focalSum, y = Curvature, fill = Error.bin ))+
+    facet_wrap(~Radiation)+
+    geom_tile()+
+    scale_fill_brewer(palette = "PRGn") + 
+    labs(title = "Errors at different radiation Thresholds")
 
+```
 
 
 
