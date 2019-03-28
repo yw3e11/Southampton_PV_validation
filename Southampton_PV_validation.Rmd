@@ -923,8 +923,12 @@ assign_bid <- temp %>%
 assign_bid
 
 temp %>% 
+  head()
+
+
+temp %>% 
   left_join(assign_bid, by = "ADDRESS0") %>% 
-  dplyr::select(-OBJECTID_12.., -Toid ,  - ADDRESS0, -UPRN, -Panel.no, -Distance ) %>% 
+  dplyr::select(- ADDRESS0, -UPRN, -Panel.no, -Distance ) %>% 
   #names()
   gather(Parameter, Result, -BID, -kW) %>% 
   mutate(Result = ifelse(Result == "<Null>", "0", Result)) %>% 
@@ -979,7 +983,7 @@ temp %>%
   mutate(Radiation = substring(Radiation, 2)) %>% 
   mutate(focalSum = substring(focalSum, 2)) %>% 
   mutate(Curvature = as.integer(Curvature)) %>% 
-  mutate(Radiation = as.integer(Radiation)) %>% 
+  mutate(Radiation = as.integer(Radiation)/100000) %>% 
   mutate(focalSum = as.integer(focalSum)) %>% 
   mutate(Error = (Result - kW)/kW) %>% 
   #distinct(Curvature)
@@ -1001,9 +1005,11 @@ temp %>%
   #head()
   ggplot(aes(x=Radiation, y = focalSum, fill = Error.bin ))+
     facet_wrap(~Curvature)+
-    geom_tile(color = "black")+
+    geom_tile()+
     scale_fill_brewer(palette = "PRGn") +
-    labs(title = "Errors at different Curvature Thresholds")
+    labs(title = "Errors at different Curvature Thresholds", 
+         x= expression(Radiation~(x10^5~W/m^2/year)), 
+         fill = "Error")
 
     
   
@@ -1027,7 +1033,7 @@ temp %>%
   mutate(Radiation = substring(Radiation, 2)) %>% 
   mutate(focalSum = substring(focalSum, 2)) %>% 
   mutate(Curvature = as.integer(Curvature)) %>% 
-  mutate(Radiation = as.integer(Radiation)) %>% 
+  mutate(Radiation = as.integer(Radiation)/100000) %>% 
   mutate(focalSum = as.integer(focalSum)) %>% 
   mutate(Error = (Result - kW)/kW) %>%  # positive - overestimate; negative - underestimate
   #distinct(Curvature)
@@ -1051,7 +1057,9 @@ temp %>%
     facet_wrap(~focalSum)+
     geom_tile()+
     scale_fill_brewer(palette = "PRGn") + 
-    labs(title = "Errors at different focalSum Thresholds")
+    labs(title = "Errors at different focalSum Thresholds", 
+         x= expression(Radiation~(x10^5~W/m^2/year)), 
+         fill = "Error")
 
 ```
 
@@ -1072,7 +1080,7 @@ temp %>%
   mutate(Radiation = substring(Radiation, 2)) %>% 
   mutate(focalSum = substring(focalSum, 2)) %>% 
   mutate(Curvature = as.integer(Curvature)) %>% 
-  mutate(Radiation = as.integer(Radiation)) %>% 
+  mutate(Radiation = as.integer(Radiation)/100000) %>% 
   mutate(focalSum = as.integer(focalSum)) %>% 
   mutate(Error = (Result - kW)/kW) %>%  # positive - overestimate; negative - underestimate
   #distinct(Curvature)
@@ -1096,7 +1104,8 @@ temp %>%
     facet_wrap(~Radiation)+
     geom_tile()+
     scale_fill_brewer(palette = "PRGn") + 
-    labs(title = "Errors at different radiation Thresholds")
+    labs(title = expression(Errors~at~different~radiation~thresholds~(x10^5~W/m^2/year)), 
+         fill = "Error")
 
 ```
 
